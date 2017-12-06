@@ -1,13 +1,18 @@
 /*!
 
-Type checks state machines, their state transitions, and generates `Future`
-implementations with session-typed state transition boilerplate for you.
+Easily create type-safe `Future`s from state machines — without the boilerplate.
+
+`state_machine_future` type checks state machines and their state transitions,
+and then generates `Future` implementations and typestate<sup>[0][]</sup>
+boilerplate for you.
 
 * [Introduction](#introduction)
 * [Guide](#guide)
 * [Example](#example)
 * [Attributes](#attributes)
 * [Features](#features)
+* [License](#license)
+* [Contribution](#contribution)
 
 ## Introduction
 
@@ -15,26 +20,25 @@ Most of the time, using `Future` combinators like `map` and `then` are a great
 way to describe an asynchronous computation. Other times, the most natural way
 to describe the process at hand is a state machine.
 
- When writing state machines in Rust, we want to *leverage the type system to
+When writing state machines in Rust, we want to *leverage the type system to
 enforce that only valid state transitions may occur*. To do that, we want
-*session types* <sup>[0][]</sup> <sup>[1][]</sup> that descibe each state and
-their transitions. But we *also* need an `enum` of every possible state, so we
-can treat the whole state machine as a single entity, and implement `Future` for
-it. But this is getting to be a *lot* of boilerplate...
+*typestates*<sup>[0][]</sup>: types that represents each state in the state
+machine, and methods whose signatures only permit valid state transitions. But
+we *also* need an `enum` of every possible state, so we can treat the whole
+state machine as a single entity, and implement `Future` for it. But this is
+getting to be a *lot* of boilerplate...
 
 Enter `#[derive(StateMachineFuture)]`.
 
 With `#[derive(StateMachineFuture)]`, we describe the states and the possible
 transitions between them, and then the custom derive generates:
 
-* An `enum` type for the whole state machine, describing the current state at
-any given time.
+* A typestate for each state in the state machine.
 
-* An implementation of `Future` for that type.
+* A type for the whole state machine that implements `Future`.
 
-* A `start` method that constructs that type, initialized in the start state.
-
-* A session type for each state.
+* A concrete `start` method that constructs the state machine `Future` for you,
+initialized to its start state.
 
 * A state transition polling trait, with a `poll_zee_choo` method for each
 non-final state `ZeeChoo`. This trait describes the state machine's valid
@@ -46,11 +50,13 @@ trait.
 Additionally, `#[derive(StateMachineFuture)]` will statically prevent against
 some footguns that can arise when writing state machines:
 
-* Every state is reachable from the start state: there are no useless states.
+* Every state is reachable from the start state: *there are no useless states.*
 
-* There are no states which cannot reach a final state (corresponding to
-`Ok(Async::Ready(Future::Item))` or `Err(Future::Error)`). These states would
+* *There are no states which cannot reach a final state*. These states would
 otherwise lead to infinite loops.
+
+* *All state transitions are valid.* Attempting to make an invalid state
+transition fails to type check, thanks to the generated typestates.
 
 ## Guide
 
@@ -98,8 +104,7 @@ transitions.
 ```ignore
 #[derive(StateMachineFuture)]
 enum MyStateMachine {
-    #[state_machine_future(start)]
-    #[state_machine_future(transitions(Intermediate))]
+    #[state_machine_future(start, transitions(Intermediate))]
     Start,
 
     #[state_machine_future(transitions(Start, Ready))]
@@ -118,13 +123,13 @@ us.
 
 For each state, the custom derive creates:
 
-* A standalone session type for the state. The type's name matches the variant
-name, for example the `Intermediate` state variant's type is also named
-`Intermediate`. The kind of struct type generated matches the variant kind: a
-unit-style variant results in a unit struct, a tuple-style variant results in a
-tuple struct, and a struct-style variant results in a normal struct with fields.
+* A typestate for the state. The type's name matches the variant name, for
+example the `Intermediate` state variant's typestate is also named `Intermediate`.
+The kind of struct type generated matches the variant kind: a unit-style variant
+results in a unit struct, a tuple-style variant results in a tuple struct, and a
+struct-style variant results in a normal struct with fields.
 
-| State `enum` Variant                              | Generated Session Type         |
+| State `enum` Variant                              | Generated Typestate            |
 | ------------------------------------------------- | ------------------------------ |
 | `enum StateMachine { MyState, ... }`              | `struct MyState;`              |
 | `enum StateMachine { MyState(bool, usize), ... }` | `struct MyState(bool, usize);` |
@@ -144,9 +149,9 @@ enum AfterIntermediate {
 Next, for the state machine as a whole, the custom derive generates:
 
 * A state machine `Future` type, which is essentially an `enum` of all the
-different state session types. This type is named `BlahFuture` where `Blah` is
-the name of the state machine description `enum`. In this example, where the
-state machine description is named `MyStateMachine`, the generated state machine
+different typestates. This type is named `BlahFuture` where `Blah` is the name
+of the state machine description `enum`. In this example, where the state
+machine description is named `MyStateMachine`, the generated state machine
 future type would be named `MyStateMachineFuture`.
 
 * A polling trait, `PollBordle` where `Bordle` is this state machine
@@ -182,16 +187,16 @@ in:
 
   * Etc...
 
-* A `start` method for the description type (so `MyStateMachine::start` in this
-example) which constructs a new state machine `Future` type in its **start**
-state. This method has a parameter for each field in the **start** state
-variant.
+* A concrete `start` method for the description type (so `MyStateMachine::start`
+in this example) which constructs a new state machine `Future` type in its
+**start** state for you. This method has a parameter for each field in the
+**start** state variant.
 
-| Start `enum` Variant            | Generated `start` Method's Signature                         |
-| ------------------------------- | ------------------------------------------------------------ |
-| `MyStart,`                      | `fn start() -> MyStateMachineFuture;`                        |
-| `MyStart(bool, usize),`         | `fn start(arg0: bool, arg1: usize) -> MyStateMachineFuture;` |
-| `MyStart { x: char, y: bool },` | `fn start(x: char, y: bool) -> MyStateMachineFuture;`        |
+| Start `enum` Variant            | Generated `start` Method                                            |
+| ------------------------------- | ------------------------------------------------------------------- |
+| `MyStart,`                      | `fn start() -> MyStateMachineFuture { ... }`                        |
+| `MyStart(bool, usize),`         | `fn start(arg0: bool, arg1: usize) -> MyStateMachineFuture { ... }` |
+| `MyStart { x: char, y: bool },` | `fn start(x: char, y: bool) -> MyStateMachineFuture { ... }`        |
 
 Given all those generated types and traits, all we have to do is `impl PollBlah
 for Blah` for our state machine `Blah`.
@@ -290,8 +295,7 @@ enum Game {
     ///
     /// Once the invited player accepts the invitation over HTTP, then we will
     /// switch states into playing the game, waiting to recieve each turn.
-    #[state_machine_future(start)]
-    #[state_machine_future(transitions(WaitingForTurn))]
+    #[state_machine_future(start, transitions(WaitingForTurn))]
     Invite {
         invitation: HttpInvitationFuture,
         from: Player,
@@ -369,9 +373,27 @@ impl PollGame for Game {
         }
     }
 }
+
+# struct TokioHandle;
+# impl TokioHandle { fn spawn<T>(&self, _: T) {} }
+# fn get_some_player() -> Player { unimplemented!() }
+# fn get_another_player() -> Player { unimplemented!() }
+# fn invite(_: &Player, _: &Player) -> HttpInvitationFuture { unimplemented!() }
+// To spawn a new `Game` as a `Future` on whatever executor we're using (for
+// example `tokio`), we use `Game::start` to construct the `Future` in its start
+// state and then pass it to the executor.
+fn spawn_game(handle: TokioHandle) {
+    let from = get_some_player();
+    let to = get_another_player();
+    let invitation = invite(&from, &to);
+    let future = Game::start(invitation, from, to);
+    handle.spawn(future)
+}
 ```
 
 ## Attributes
+
+This is a list of all of the attributes used by `state_machine_future`:
 
 * `#[derive(FutureStateMachine)]`: Placed on an `enum` that describes a state
 machine.
@@ -406,8 +428,28 @@ Here are the `cargo` features that you can enable:
 * `debug_code_generation`: Prints the code generated by
 `#[derive(StateMachineFuture)]` to `stdout` for debugging purposes.
 
-[0]: http://munksgaard.me/papers/laumann-munksgaard-larsen.pdf
-[1]: https://polysync.io/blog/session-types-for-hearty-codecs/
+## License
+
+Licensed under either of
+
+ * [Apache License, Version 2.0](http://www.apache.org/licenses/LICENSE-2.0)
+
+ * [MIT license](http://opensource.org/licenses/MIT)
+
+at your option.
+
+## Contribution
+
+See
+[CONTRIBUTING.md](https://github.com/fitzgen/state_machine_future/blob/master/CONTRIBUTING.md)
+for hacking.
+
+Unless you explicitly state otherwise, any contribution intentionally submitted
+for inclusion in the work by you, as defined in the Apache-2.0 license, shall be
+dual licensed as above, without any additional terms or conditions.
+
+
+[0]: https://en.wikipedia.org/wiki/Typestate_analysis
 
 [rent_to_own]: https://crates.io/crates/rent_to_own
 

@@ -2,11 +2,10 @@
 authors = ["Nick Fitzgerald <fitzgen@gmail.com>"]
 categories = ["asynchronous", "rust-patterns"]
 description = """
-Checks Futures implemented as state machines and generates session typed state
-transition boilerplate for you.
+Easily create type-safe `Future`s from state machines — without the boilerplate.
 """
 documentation = "https://docs.rs/state_machine_future"
-keywords = ["session", "derive", "state", "machine", "future"]
+keywords = ["typestate", "derive", "state", "machine", "future"]
 license = "Apache-2.0/MIT"
 name = "state_machine_future"
 readme = "./README.md"
