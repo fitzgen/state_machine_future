@@ -409,29 +409,29 @@ fn spawn_game(handle: TokioHandle) {
 
 This is a list of all of the attributes used by `state_machine_future`:
 
-* `#[derive(FutureStateMachine)]`: Placed on an `enum` that describes a state
+* `#[derive(StateMachineFuture)]`: Placed on an `enum` that describes a state
 machine.
 
-* `#[future_state_machine(derive(Clone, Debug, ...))]`: Placed on the `enum`
+* `#[state_machine_future(derive(Clone, Debug, ...))]`: Placed on the `enum`
 that describes the state machine. This attribute describes which
 `#[derive(...)]`s to place on the generated `Future` type.
 
-* `#[future_state_machine(start)]`: Used on a variant of the state machine
+* `#[state_machine_future(start)]`: Used on a variant of the state machine
 description `enum`. There must be exactly one variant with this attribute. This
 describes the initial starting state. The generated `start` method has a
 parameter for each field in this variant.
 
-* `#[future_state_machine(ready)]`: Used on a variant of the state machine
+* `#[state_machine_future(ready)]`: Used on a variant of the state machine
 description `enum`. There must be exactly one variant with this attribute. It
 must be a tuple-style variant with one field, for example `Ready(MyItemType)`.
 The generated `Future` implementation uses the field's type as `Future::Item`.
 
-* `#[future_state_machine(error)]`: Used on a variant of the state machine
+* `#[state_machine_future(error)]`: Used on a variant of the state machine
 description `enum`. There must be exactly one variant with this attribute. It
 must be a tuple-style variant with one field, for example `Error(MyError)`.  The
 generated `Future` implementation uses the field's type as `Future::Error`.
 
-* `#[future_state_machine(transitions(OtherState, AnotherState, ...))]`: Used on
+* `#[state_machine_future!(transitions(OtherState, AnotherState, ...))]`: Used on
 a variant of the state machine description `enum`. Describes the states that
 this one can transition to.
 
