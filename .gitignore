@@ -1,4 +1,4 @@
-
 /target/
+/derive_state_machine_future/target/
 **/*.rs.bk
 Cargo.lock
