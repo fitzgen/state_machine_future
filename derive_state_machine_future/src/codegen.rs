@@ -409,6 +409,20 @@ impl ToTokens for State<phases::ReadyForCodegen> {
             })
             .collect();
 
+        let after_froms: Vec<_> = self.transitions
+            .iter()
+            .map(|s| {
+                let s_var = to_var(s.to_string());
+                quote! {
+                    impl #generics From<#s #generics> for #after_ident #generics #wheres {
+                        fn from(#s_var: #s #generics) -> Self {
+                            #after_ident::#s(#s_var)
+                        }
+                    }
+                }
+            })
+            .collect();
+
         let after_doc = doc_string(format!(
             "The states that the `{}` state can transition to.",
             ident_name
@@ -419,6 +433,7 @@ impl ToTokens for State<phases::ReadyForCodegen> {
             pub enum #after_ident #generics #wheres {
                 #( #after_variants ),*
             }
+            #( #after_froms )*
         });
     }
 }

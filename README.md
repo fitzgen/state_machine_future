@@ -138,13 +138,22 @@ struct-style variant results in a normal struct with fields.
 | `enum StateMachine { MyState { x: usize }, ... }` | `struct MyState { x: usize };` |
 
 * An `enum` for the possible states that can come after this state. This `enum`
-is named `AfterX` where `X` is the state's name. For example, the `Intermediate`
-state would get:
+is named `AfterX` where `X` is the state's name. There is also a `From<Y>`
+implementation for each `Y` state that can be transitioned to after `X`. For
+example, the `Intermediate` state would get:
 
 ```rust
 enum AfterIntermediate {
     Start(Start),
     Ready(Ready),
+}
+
+impl From<Start> for AfterIntermediate {
+    // ...
+}
+
+impl From<Ready> for AfterIntermediate {
+    // ...
 }
 ```
 
@@ -321,11 +330,12 @@ impl PollGame for Game {
         // ownership of the `Invite` and then construct and return the new
         // state.
         let invite = invite.take();
-        Ok(Async::Ready(AfterInvite::WaitingForTurn(WaitingForTurn {
+        let waiting = WaitingForTurn {
             turn: invite.from.request_turn(),
             active: invite.from,
             idle: invite.to,
-        })))
+        };
+        Ok(Async::Ready(waiting.into()))
     }
 
     fn poll_waiting_for_turn<'a>(
@@ -342,13 +352,15 @@ impl PollGame for Game {
         // and request the turn over HTTP.
         let waiting = waiting.take();
         if let Some(game_result) = process_turn(turn) {
-            Ok(Async::Ready(AfterWaitingForTurn::Finished(Finished(game_result))))
+            let finished = Finished(game_result);
+            Ok(Async::Ready(finished.into()))
         } else {
-            Ok(Async::Ready(AfterWaitingForTurn::WaitingForTurn(WaitingForTurn {
+            let next_waiting = WaitingForTurn {
                 turn: waiting.idle.request_turn(),
                 active: waiting.idle,
                 idle: waiting.active,
-            })))
+            };
+            Ok(Async::Ready(next_waiting.into()))
         }
     }
 }
