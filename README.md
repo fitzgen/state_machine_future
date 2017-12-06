@@ -1,5 +1,7 @@
 # `state_machine_future`
 
+[![](https://docs.rs/state_machine_future/badge.svg)](https://docs.rs/state_machine_future/) [![](https://img.shields.io/crates/v/state_machine_future.svg)](https://crates.io/crates/state_machine_future) [![](https://img.shields.io/crates/d/state_machine_future.png)](https://crates.io/crates/state_machine_future) [![Build Status](https://travis-ci.org/fitzgen/state_machine_future.png?branch=master)](https://travis-ci.org/fitzgen/state_machine_future)
+
 Easily create type-safe `Future`s from state machines — without the boilerplate.
 
 `state_machine_future` type checks state machines and their state transitions,
