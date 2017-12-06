@@ -1,0 +1,5 @@
+reorder_imports = true
+reorder_imported_names = true
+
+# For the badges in the crate documentation.
+error_on_line_overflow_comments = false
