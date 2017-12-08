@@ -30,6 +30,11 @@ $ cargo build
 
 ## Testing
 
+The tests require `cargo-readme` to be installed:
+```
+$ cargo install cargo-readme
+```
+
 To run all the tests:
 
 ```
@@ -39,7 +44,7 @@ $ cargo test
 ## Automatic code formatting
 
 We use [`rustfmt`](https://github.com/rust-lang-nursery/rustfmt) to enforce a
-consistent code style across the whole `cpp_demangle` code base.
+consistent code style across the whole code base.
 
 You can install the latest version of `rustfmt` with this command:
 
