@@ -38,7 +38,7 @@ $ cargo test
 ## Automatic code formatting
 
 We use [`rustfmt`](https://github.com/rust-lang-nursery/rustfmt) to enforce a
-consistent code style across the whole `derive_is_enum_variant` code base.
+consistent code style across the whole code base.
 
 You can install the latest version of `rustfmt` with this command:
 

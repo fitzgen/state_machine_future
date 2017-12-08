@@ -25,7 +25,7 @@ pub struct StateMachine<P: phases::Phase> {
     pub extra: P::StateMachineExtra,
 }
 
-/// In inidividual state in a state machine.
+/// In individual state in a state machine.
 #[derive(Debug, FromVariant)]
 #[darling(attributes(state_machine_future, transitions, start, ready, error),
           forward_attrs(allow, doc, cfg))]
