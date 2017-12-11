@@ -13,7 +13,7 @@ use std::fmt::Debug;
 use std::marker::PhantomData;
 
 #[derive(StateMachineFuture)]
-pub enum Fsm<T, E>
+pub enum Fsm<T : 'static, E>
 where
     T: Default,
     E: Debug,
@@ -34,7 +34,7 @@ where
 
 impl<T, E> PollFsm<T, E> for Fsm<T, E>
 where
-    T: Default,
+    T: Default + 'static,
     E: Debug,
 {
     fn poll_start<'a>(
