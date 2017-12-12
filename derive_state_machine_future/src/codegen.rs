@@ -45,8 +45,7 @@ impl ToTokens for StateMachine<phases::ReadyForCodegen> {
         }
 
         let vis = &self.vis;
-        let generics = &self.generics;
-        let wheres = &self.generics.where_clause;
+        let (impl_generics, ty_generics, where_clause) = self.generics.split_for_impl();
         let states = self.states();
 
         let derive = if self.derive.is_empty() {
@@ -65,7 +64,7 @@ impl ToTokens for StateMachine<phases::ReadyForCodegen> {
             .iter()
             .map(|s| {
                 quote! {
-                    #s(#s #generics)
+                    #s(#s #ty_generics)
                 }
             })
             .collect();
@@ -158,18 +157,19 @@ impl ToTokens for StateMachine<phases::ReadyForCodegen> {
                 #( #states )*
 
                 #derive
-                enum #states_enum #generics #wheres {
+                enum #states_enum #impl_generics #where_clause {
                     #( #states_variants ),*
                 }
 
                 #( #state_machine_attrs )*
                 #derive
                 #[must_use = "futures do nothing unless polled"]
-                pub struct #state_machine_ident #generics(
-                    Option<#states_enum #generics>
-                ) #wheres;
+                pub struct #state_machine_ident #impl_generics(
+                    Option<#states_enum #ty_generics>
+                ) #where_clause;
 
-                impl #generics self::futures::Future for #state_machine_ident #generics #wheres {
+                impl #impl_generics self::futures::Future
+                    for #state_machine_ident #ty_generics #where_clause {
                     type Item = #future_item;
                     type Error = #future_error;
 
@@ -186,21 +186,22 @@ impl ToTokens for StateMachine<phases::ReadyForCodegen> {
                     }
                 }
 
-                impl #generics self::state_machine_future::StateMachineFuture
-                    for #ident #generics #wheres
+                impl #impl_generics self::state_machine_future::StateMachineFuture
+                    for #ident #ty_generics #where_clause
                 {
-                    type Future = #state_machine_ident #generics;
+                    type Future = #state_machine_ident #ty_generics;
                 }
 
-                pub trait #poll_trait #generics : self::state_machine_future::StateMachineFuture
-                    #wheres
+                pub trait #poll_trait #impl_generics
+                    : self::state_machine_future::StateMachineFuture
+                    #where_clause
                 {
                     #( #poll_trait_methods )*
                 }
 
-                impl #generics #ident #generics #wheres {
+                impl #impl_generics #ident #ty_generics #where_clause {
                     #start_doc
-                    pub fn start( #( #start_params ),* ) -> #state_machine_ident #generics {
+                    pub fn start( #( #start_params ),* ) -> #state_machine_ident #ty_generics {
                         #state_machine_ident(
                             Some(
                                 #states_enum::#start_state_ident(
@@ -271,7 +272,7 @@ impl State<phases::ReadyForCodegen> {
         let after = &self.extra.after;
         let poll_method = &self.extra.poll_method;
         let description_ident = &*self.extra.description_ident;
-        let generics = &*self.extra.generics;
+        let ty_generics = self.extra.generics.split_for_impl().1;
 
         let ready = self.transitions.iter().map(|t| {
             let t_var = to_var(t.to_string());
@@ -287,7 +288,7 @@ impl State<phases::ReadyForCodegen> {
                 let (#var, result) =
                     self::state_machine_future::RentToOwn::with(
                         #var,
-                        <#description_ident #generics as #poll_trait #generics>::#poll_method
+                        <#description_ident #ty_generics as #poll_trait #ty_generics>::#poll_method
                     );
                 match result {
                     Err(e) => {
@@ -329,13 +330,13 @@ impl State<phases::ReadyForCodegen> {
         let poll_method_doc = self.poll_doc_string();
         let me = &self.ident;
         let after = &self.extra.after;
-        let generics = &*self.extra.generics;
+        let ty_generics = self.extra.generics.split_for_impl().1;
         let error_type = &*self.extra.error_type;
         quote! {
             #poll_method_doc
             fn #poll_method<'a>(
-                &'a mut self::state_machine_future::RentToOwn<'a, #me #generics>
-            ) -> self::futures::Poll<#after #generics, #error_type>;
+                &'a mut self::state_machine_future::RentToOwn<'a, #me #ty_generics>
+            ) -> self::futures::Poll<#after #ty_generics, #error_type>;
         }
     }
 }
@@ -345,8 +346,7 @@ impl ToTokens for State<phases::ReadyForCodegen> {
         let ident_name = self.ident.to_string();
         let ident = &self.ident;
         let attrs = &self.attrs;
-        let generics = &*self.extra.generics;
-        let wheres = &self.extra.generics.where_clause;
+        let (impl_generics, ty_generics, where_clause) = self.extra.generics.split_for_impl();
 
         let derive = if self.extra.derive.is_empty() {
             quote!{}
@@ -377,12 +377,12 @@ impl ToTokens for State<phases::ReadyForCodegen> {
             darling::ast::Style::Tuple => quote! {
                 #( #attrs )*
                 #derive
-                pub struct #ident #generics( #( #fields ),* ) #wheres;
+                pub struct #ident #impl_generics( #( #fields ),* ) #where_clause;
             },
             darling::ast::Style::Struct => quote! {
                 #( #attrs )*
                 #derive
-                pub struct #ident #generics #wheres {
+                pub struct #ident #impl_generics #where_clause {
                     #( #fields ),*
                 }
             },
@@ -404,7 +404,7 @@ impl ToTokens for State<phases::ReadyForCodegen> {
                 ));
                 quote! {
                     #doc
-                    #s(#s #generics)
+                    #s(#s #ty_generics)
                 }
             })
             .collect();
@@ -414,8 +414,9 @@ impl ToTokens for State<phases::ReadyForCodegen> {
             .map(|s| {
                 let s_var = to_var(s.to_string());
                 quote! {
-                    impl #generics From<#s #generics> for #after_ident #generics #wheres {
-                        fn from(#s_var: #s #generics) -> Self {
+                    impl #impl_generics From<#s #ty_generics>
+                        for #after_ident #ty_generics #where_clause {
+                        fn from(#s_var: #s #ty_generics) -> Self {
                             #after_ident::#s(#s_var)
                         }
                     }
@@ -430,7 +431,7 @@ impl ToTokens for State<phases::ReadyForCodegen> {
 
         tokens.append(quote! {
             #after_doc
-            pub enum #after_ident #generics #wheres {
+            pub enum #after_ident #impl_generics #where_clause {
                 #( #after_variants ),*
             }
             #( #after_froms )*
