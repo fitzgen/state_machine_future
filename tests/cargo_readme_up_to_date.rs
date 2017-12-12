@@ -12,7 +12,10 @@ fn cargo_readme_up_to_date() {
         .output()
         .expect("should run `cargo readme` OK");
 
-    assert!(output.status.success(), "Check if you have `cargo-readme` in $PATH");
+    assert!(
+        output.status.success(),
+        "Check if you have `cargo-readme` in $PATH"
+    );
     let expected = String::from_utf8_lossy(&output.stdout);
 
     let actual = {

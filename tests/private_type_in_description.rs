@@ -4,7 +4,7 @@ extern crate futures;
 #[macro_use]
 extern crate state_machine_future;
 
-use futures::{Poll};
+use futures::Poll;
 use state_machine_future::RentToOwn;
 
 struct PrivateType;
