@@ -85,10 +85,6 @@ impl ToTokens for StateMachine<phases::ReadyForCodegen> {
         let mut state_machine_name = state_machine_description_name.clone();
         state_machine_name.push_str("Future");
 
-        let mut module_name = state_machine_name.clone();
-        module_name.push_str("Module");
-        let module_ident = to_var(module_name);
-
         let ident = &self.ident;
         let state_machine_ident = quote::Ident::new(state_machine_name.as_str());
         let states_enum = &*self.extra.states_enum;
@@ -146,74 +142,70 @@ impl ToTokens for StateMachine<phases::ReadyForCodegen> {
             state_machine_name
         ));
 
+        let futures_crate = &*self.extra.futures_crate;
+        let smf_crate = &*self.extra.smf_crate;
+
         tokens.append(quote! {
-            mod #module_ident {
-                #![allow(unreachable_code, unused_imports)]
+            extern crate futures as #futures_crate;
+            extern crate state_machine_future as #smf_crate;
 
-                extern crate futures;
-                extern crate state_machine_future;
-                use super::*;
+            #( #states )*
 
-                #( #states )*
+            #derive
+            enum #states_enum #impl_generics #where_clause {
+                #( #states_variants ),*
+            }
 
-                #derive
-                enum #states_enum #impl_generics #where_clause {
-                    #( #states_variants ),*
-                }
+            #( #state_machine_attrs )*
+            #derive
+            #[must_use = "futures do nothing unless polled"]
+            #vis struct #state_machine_ident #impl_generics(
+                Option<#states_enum #ty_generics>
+            ) #where_clause;
 
-                #( #state_machine_attrs )*
-                #derive
-                #[must_use = "futures do nothing unless polled"]
-                pub struct #state_machine_ident #impl_generics(
-                    Option<#states_enum #ty_generics>
-                ) #where_clause;
+            impl #impl_generics #futures_crate::Future
+                for #state_machine_ident #ty_generics #where_clause {
+                type Item = #future_item;
+                type Error = #future_error;
 
-                impl #impl_generics self::futures::Future
-                    for #state_machine_ident #ty_generics #where_clause {
-                    type Item = #future_item;
-                    type Error = #future_error;
-
-                    fn poll(&mut self) -> self::futures::Poll<Self::Item, Self::Error> {
-                        loop {
-                            let state = match self.0.take() {
-                                Some(state) => state,
-                                None => return Ok(self::futures::Async::NotReady),
-                            };
-                            self.0 = match state {
-                                #( #poll_match_arms )*
-                            };
-                        }
-                    }
-                }
-
-                impl #impl_generics self::state_machine_future::StateMachineFuture
-                    for #ident #ty_generics #where_clause
-                {
-                    type Future = #state_machine_ident #ty_generics;
-                }
-
-                pub trait #poll_trait #impl_generics
-                    : self::state_machine_future::StateMachineFuture
-                    #where_clause
-                {
-                    #( #poll_trait_methods )*
-                }
-
-                impl #impl_generics #ident #ty_generics #where_clause {
-                    #start_doc
-                    pub fn start( #( #start_params ),* ) -> #state_machine_ident #ty_generics {
-                        #state_machine_ident(
-                            Some(
-                                #states_enum::#start_state_ident(
-                                    #start_value
-                                )
-                            )
-                        )
+                fn poll(&mut self) -> #futures_crate::Poll<Self::Item, Self::Error> {
+                    loop {
+                        let state = match self.0.take() {
+                            Some(state) => state,
+                            None => return Ok(#futures_crate::Async::NotReady),
+                        };
+                        self.0 = match state {
+                            #( #poll_match_arms )*
+                        };
                     }
                 }
             }
-            #[allow(unused_imports)]
-            #vis use self::#module_ident::*;
+
+            impl #impl_generics #smf_crate::StateMachineFuture
+                for #ident #ty_generics #where_clause
+            {
+                type Future = #state_machine_ident #ty_generics;
+            }
+
+            #vis trait #poll_trait #impl_generics
+                : #smf_crate::StateMachineFuture
+                #where_clause
+            {
+                #( #poll_trait_methods )*
+            }
+
+            impl #impl_generics #ident #ty_generics #where_clause {
+                #start_doc
+                #vis fn start( #( #start_params ),* ) -> #state_machine_ident #ty_generics {
+                    #state_machine_ident(
+                        Some(
+                            #states_enum::#start_state_ident(
+                                #start_value
+                            )
+                        )
+                    )
+                }
+            }
         });
 
         if cfg!(feature = "debug_code_generation") {
@@ -249,11 +241,13 @@ impl State<phases::ReadyForCodegen> {
         let var = to_var(&ident_string);
         let states_enum = &*self.extra.states_enum;
         let poll_trait = &*self.extra.poll_trait;
+        let futures_crate = &*self.extra.futures_crate;
+        let smf_crate = &*self.extra.smf_crate;
 
         if self.ready {
             return quote! {
                 #states_enum::#ident(#ident(#var)) => {
-                    return Ok(self::futures::Async::Ready(#var));
+                    return Ok(#futures_crate::Async::Ready(#var));
                 }
             };
         }
@@ -277,7 +271,7 @@ impl State<phases::ReadyForCodegen> {
         let ready = self.transitions.iter().map(|t| {
             let t_var = to_var(t.to_string());
             quote! {
-                Ok(self::futures::Async::Ready(#after::#t(#t_var))) => {
+                Ok(#futures_crate::Async::Ready(#after::#t(#t_var))) => {
                     Some(#states_enum::#t(#t_var))
                 }
             }
@@ -286,7 +280,7 @@ impl State<phases::ReadyForCodegen> {
         quote! {
             #states_enum::#ident(#var) => {
                 let (#var, result) =
-                    self::state_machine_future::RentToOwn::with(
+                    #smf_crate::RentToOwn::with(
                         #var,
                         <#description_ident #ty_generics as #poll_trait #ty_generics>::#poll_method
                     );
@@ -294,9 +288,9 @@ impl State<phases::ReadyForCodegen> {
                     Err(e) => {
                         Some(#states_enum::#error_ident(#error_ident(e)))
                     }
-                    Ok(self::futures::Async::NotReady) => {
+                    Ok(#futures_crate::Async::NotReady) => {
                         self.0 = #var.map(#states_enum::#ident);
-                        return Ok(self::futures::Async::NotReady);
+                        return Ok(#futures_crate::Async::NotReady);
                     }
                     #( #ready )*
                 }
@@ -332,17 +326,21 @@ impl State<phases::ReadyForCodegen> {
         let after = &self.extra.after;
         let ty_generics = self.extra.generics.split_for_impl().1;
         let error_type = &*self.extra.error_type;
+        let futures_crate = &*self.extra.futures_crate;
+        let smf_crate = &*self.extra.smf_crate;
+
         quote! {
             #poll_method_doc
             fn #poll_method<'a>(
-                &'a mut self::state_machine_future::RentToOwn<'a, #me #ty_generics>
-            ) -> self::futures::Poll<#after #ty_generics, #error_type>;
+                &'a mut #smf_crate::RentToOwn<'a, #me #ty_generics>
+            ) -> #futures_crate::Poll<#after #ty_generics, #error_type>;
         }
     }
 }
 
 impl ToTokens for State<phases::ReadyForCodegen> {
     fn to_tokens(&self, tokens: &mut quote::Tokens) {
+        let vis = &*self.extra.vis;
         let ident_name = self.ident.to_string();
         let ident = &self.ident;
         let attrs = &self.attrs;
@@ -372,17 +370,17 @@ impl ToTokens for State<phases::ReadyForCodegen> {
             darling::ast::Style::Unit => quote! {
                 #( #attrs )*
                 #derive
-                pub struct #ident;
+                #vis struct #ident;
             },
             darling::ast::Style::Tuple => quote! {
                 #( #attrs )*
                 #derive
-                pub struct #ident #impl_generics( #( #fields ),* ) #where_clause;
+                #vis struct #ident #impl_generics( #( #fields ),* ) #where_clause;
             },
             darling::ast::Style::Struct => quote! {
                 #( #attrs )*
                 #derive
-                pub struct #ident #impl_generics #where_clause {
+                #vis struct #ident #impl_generics #where_clause {
                     #( #fields ),*
                 }
             },
@@ -399,8 +397,7 @@ impl ToTokens for State<phases::ReadyForCodegen> {
             .map(|s| {
                 let doc = doc_string(format!(
                     "A transition from the `{}` state to the `{}` state.",
-                    ident_name,
-                    s
+                    ident_name, s
                 ));
                 quote! {
                     #doc
@@ -431,7 +428,7 @@ impl ToTokens for State<phases::ReadyForCodegen> {
 
         tokens.append(quote! {
             #after_doc
-            pub enum #after_ident #impl_generics #where_clause {
+            #vis enum #after_ident #impl_generics #where_clause {
                 #( #after_variants ),*
             }
             #( #after_froms )*

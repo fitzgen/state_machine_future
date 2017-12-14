@@ -254,7 +254,6 @@ mod ready_state_with_multiple_fields {
      */
 }
 
-
 mod error_state_with_multiple_fields {
     /*!
     ```compile_fail
