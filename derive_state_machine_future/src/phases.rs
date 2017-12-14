@@ -312,6 +312,8 @@ pub struct ReadyForCodegen {
     pub error: usize,
     pub states_enum: Rc<quote::Ident>,
     pub poll_trait: Rc<quote::Ident>,
+    pub futures_crate: Rc<quote::Ident>,
+    pub smf_crate: Rc<quote::Ident>,
 }
 
 dummy_default!(ReadyForCodegen);
@@ -319,6 +321,7 @@ dummy_from_meta_item!(ReadyForCodegen);
 
 #[derive(Debug)]
 pub struct CodegenStateExtra {
+    pub vis: Rc<syn::Visibility>,
     pub description_ident: Rc<syn::Ident>,
     pub states_enum: Rc<quote::Ident>,
     pub error_type: Rc<syn::Ty>,
@@ -328,6 +331,8 @@ pub struct CodegenStateExtra {
     pub derive: Rc<darling::util::IdentList>,
     pub poll_trait: Rc<quote::Ident>,
     pub poll_method: quote::Ident,
+    pub futures_crate: Rc<quote::Ident>,
+    pub smf_crate: Rc<quote::Ident>,
 }
 
 dummy_from_meta_item!(CodegenStateExtra);
@@ -348,6 +353,8 @@ impl Pass for ReadyForCodegen {
                 ready,
                 error,
             } = extra;
+
+            let vis = Rc::new(machine.vis.clone());
 
             let description_ident = Rc::new(machine.ident.clone());
 
@@ -370,10 +377,21 @@ impl Pass for ReadyForCodegen {
             poll_trait += &machine_name;
             let poll_trait = Rc::new(quote::Ident::new(poll_trait));
 
+            let mut futures_crate = String::from("__smf_");
+            futures_crate += machine_name.clone().to_snake_case().as_str();
+            futures_crate += "_futures";
+            let futures_crate = Rc::new(quote::Ident::new(futures_crate));
+
+            let mut smf_crate = String::from("__smf_");
+            smf_crate += machine_name.clone().to_snake_case().as_str();
+            smf_crate += "_state_machine_future";
+            let smf_crate = Rc::new(quote::Ident::new(smf_crate));
+
             let states = states
                 .into_iter()
                 .map(|state| {
                     state.and_then(|state, ()| {
+                        let vis = vis.clone();
                         let description_ident = description_ident.clone();
                         let error_ident = error_ident.clone();
                         let error_type = error_type.clone();
@@ -381,6 +399,8 @@ impl Pass for ReadyForCodegen {
                         let derive = derive.clone();
                         let states_enum = states_enum.clone();
                         let poll_trait = poll_trait.clone();
+                        let futures_crate = futures_crate.clone();
+                        let smf_crate = smf_crate.clone();
 
                         let ident_name = state.ident.to_string();
 
@@ -393,6 +413,7 @@ impl Pass for ReadyForCodegen {
                         let poll_method = quote::Ident::new(poll_method);
 
                         state.join(CodegenStateExtra {
+                            vis,
                             description_ident,
                             states_enum,
                             error_ident,
@@ -402,6 +423,8 @@ impl Pass for ReadyForCodegen {
                             derive,
                             poll_trait,
                             poll_method,
+                            futures_crate,
+                            smf_crate,
                         })
                     })
                 })
@@ -414,6 +437,8 @@ impl Pass for ReadyForCodegen {
                     error,
                     states_enum,
                     poll_trait,
+                    futures_crate,
+                    smf_crate,
                 },
                 states,
             )
