@@ -28,6 +28,17 @@ Released YYYY/MM/DD
 
 --------------------------------------------------------------------------------
 
+# 0.1.4
+
+Released 2017/12/19
+
+# Fixed
+
+* Using non-`pub` types within a state no longer causes compilation errors
+  related to type visibility. [#6][]
+
+[#6]: https://github.com/fitzgen/state_machine_future/issues/6
+
 # 0.1.3
 
 Released 2017/12/12
