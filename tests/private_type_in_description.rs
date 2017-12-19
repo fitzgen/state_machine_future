@@ -1,7 +1,5 @@
 //! Test that we get the expected poll results.
 
-#![allow(dead_code)]
-
 extern crate futures;
 #[macro_use]
 extern crate state_machine_future;

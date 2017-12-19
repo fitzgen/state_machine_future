@@ -145,6 +145,47 @@ impl ToTokens for StateMachine<phases::ReadyForCodegen> {
         let futures_crate = &*self.extra.futures_crate;
         let smf_crate = &*self.extra.smf_crate;
 
+        let mut quiet = "__smf_quiet_warnings_for_".to_string();
+        quiet += &state_machine_name.to_snake_case();
+        let quiet = quote::Ident::new(quiet);
+
+        let quiet_constructions: Vec<_> = self.states()
+            .iter()
+            .map(|s| {
+                let s_ident = &s.ident;
+                match s.data.style {
+                    darling::ast::Style::Unit => quote! {
+                        let _ = ::std::mem::replace(xxx, #ident::#s_ident);
+                    },
+                    darling::ast::Style::Tuple => {
+                        let fields = s.data.fields.iter().map(|_| quote! {
+                            conjure()
+                        });
+                        quote! {
+                            let _ = ::std::mem::replace(
+                                xxx,
+                                #ident::#s_ident( #( #fields ),* ),
+                            );
+                        }
+                    }
+                    darling::ast::Style::Struct => {
+                        let fields = s.data.fields.iter().map(|f| {
+                            let f = &f.ident;
+                            quote! {
+                                #f: conjure()
+                            }
+                        });
+                        quote! {
+                            let _ = ::std::mem::replace(
+                                xxx,
+                                #ident::#s_ident { #( #fields ),* },
+                            );
+                        }
+                    }
+                }
+            })
+            .collect();
+
         tokens.append(quote! {
             extern crate futures as #futures_crate;
             extern crate state_machine_future as #smf_crate;
@@ -152,6 +193,7 @@ impl ToTokens for StateMachine<phases::ReadyForCodegen> {
             #( #states )*
 
             #derive
+            #[allow(dead_code)]
             enum #states_enum #impl_generics #where_clause {
                 #( #states_variants ),*
             }
@@ -168,6 +210,7 @@ impl ToTokens for StateMachine<phases::ReadyForCodegen> {
                 type Item = #future_item;
                 type Error = #future_error;
 
+                #[allow(unreachable_code)]
                 fn poll(&mut self) -> #futures_crate::Poll<Self::Item, Self::Error> {
                     loop {
                         let state = match self.0.take() {
@@ -196,6 +239,7 @@ impl ToTokens for StateMachine<phases::ReadyForCodegen> {
 
             impl #impl_generics #ident #ty_generics #where_clause {
                 #start_doc
+                #[allow(dead_code)]
                 #vis fn start( #( #start_params ),* ) -> #state_machine_ident #ty_generics {
                     #state_machine_ident(
                         Some(
@@ -205,6 +249,16 @@ impl ToTokens for StateMachine<phases::ReadyForCodegen> {
                         )
                     )
                 }
+            }
+
+            #[allow(warnings)]
+            fn #quiet #impl_generics (xxx: &mut #ident #ty_generics) #where_clause {
+                fn conjure<SmfAnyType>() -> SmfAnyType {
+                    unreachable!()
+                }
+                #(
+                    #quiet_constructions;
+                )*
             }
         });
 
@@ -397,7 +451,8 @@ impl ToTokens for State<phases::ReadyForCodegen> {
             .map(|s| {
                 let doc = doc_string(format!(
                     "A transition from the `{}` state to the `{}` state.",
-                    ident_name, s
+                    ident_name,
+                    s
                 ));
                 quote! {
                     #doc
