@@ -158,8 +158,10 @@ impl ToTokens for StateMachine<phases::ReadyForCodegen> {
                         let _ = ::std::mem::replace(xxx, #ident::#s_ident);
                     },
                     darling::ast::Style::Tuple => {
-                        let fields = s.data.fields.iter().map(|_| quote! {
-                            conjure()
+                        let fields = s.data.fields.iter().map(|_| {
+                            quote! {
+                                conjure()
+                            }
                         });
                         quote! {
                             let _ = ::std::mem::replace(
@@ -274,7 +276,12 @@ impl ToTokens for StateMachine<phases::ReadyForCodegen> {
                 .args(&["run", "nightly", "rustfmt"])
                 .stdin(process::Stdio::piped())
                 .spawn()
-                .unwrap();
+                .unwrap_or_else(|_| {
+                    process::Command::new("rustfmt")
+                        .stdin(process::Stdio::piped())
+                        .spawn()
+                        .unwrap()
+                });
             {
                 let mut stdin = child.stdin.take().unwrap();
                 stdin.write_all(tokens.to_string().as_bytes()).unwrap();
@@ -451,8 +458,7 @@ impl ToTokens for State<phases::ReadyForCodegen> {
             .map(|s| {
                 let doc = doc_string(format!(
                     "A transition from the `{}` state to the `{}` state.",
-                    ident_name,
-                    s
+                    ident_name, s
                 ));
                 quote! {
                     #doc
