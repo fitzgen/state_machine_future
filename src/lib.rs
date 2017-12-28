@@ -431,7 +431,7 @@ description `enum`. There must be exactly one variant with this attribute. It
 must be a tuple-style variant with one field, for example `Error(MyError)`.  The
 generated `Future` implementation uses the field's type as `Future::Error`.
 
-* `#[state_machine_future!(transitions(OtherState, AnotherState, ...))]`: Used on
+* `#[state_machine_future(transitions(OtherState, AnotherState, ...))]`: Used on
 a variant of the state machine description `enum`. Describes the states that
 this one can transition to.
 
