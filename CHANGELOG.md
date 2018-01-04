@@ -28,6 +28,19 @@ Released YYYY/MM/DD
 
 --------------------------------------------------------------------------------
 
+# 0.1.5
+
+Released 2018/1/4
+
+## Added
+
+* Support for heterogeneous usage of generic type- and lifetime-parameters
+  across states. Previously, every state had to use every generic parameter
+  (requiring `PhantomData` when it didn't need to use one). Now, states that
+  don't need a generic parameter don't have to use it. [#10][]
+
+[#10]: https://github.com/fitzgen/state_machine_future/pull/10
+
 # 0.1.4
 
 Released 2017/12/19
