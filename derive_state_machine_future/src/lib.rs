@@ -36,6 +36,8 @@ pub fn derive_state_machine_future(tokens: TokenStream) -> TokenStream {
     let machine = phases::StartReadyError::pass(machine);
     let machine = phases::ValidTransitionEdges::pass(machine);
     let machine = phases::ValidPaths::pass(machine);
+    let machine = phases::StateGenerics::pass(machine);
+    let machine = phases::AfterStateGenerics::pass(machine);
     let machine = phases::ReadyForCodegen::pass(machine);
 
     let mut tokens = quote!();

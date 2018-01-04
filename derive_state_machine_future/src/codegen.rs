@@ -57,14 +57,14 @@ impl ToTokens for StateMachine<phases::ReadyForCodegen> {
             }
         };
 
-        let state_idents: Vec<_> = states.iter().map(|s| &s.ident).collect();
-        let state_idents = &state_idents[..];
-
-        let states_variants: Vec<_> = state_idents
+        let states_variants: Vec<_> = states
             .iter()
             .map(|s| {
+                let ty_generics = s.extra.generics.split_for_impl().1;
+                let ident = &s.ident;
+
                 quote! {
-                    #s(#s #ty_generics)
+                    #ident(#ident #ty_generics)
                 }
             })
             .collect();
@@ -126,7 +126,7 @@ impl ToTokens for StateMachine<phases::ReadyForCodegen> {
 
         let poll_match_arms: Vec<_> = states
             .iter()
-            .map(|state| state.future_poll_match_arm())
+            .map(|state| state.future_poll_match_arm(&ty_generics))
             .collect();
 
         let poll_trait = &*self.extra.poll_trait;
@@ -296,7 +296,7 @@ impl ToTokens for StateMachine<phases::ReadyForCodegen> {
 }
 
 impl State<phases::ReadyForCodegen> {
-    fn future_poll_match_arm(&self) -> quote::Tokens {
+    fn future_poll_match_arm(&self, ty_generics: &syn::TyGenerics) -> quote::Tokens {
         let ident = &self.ident;
         let ident_string = ident.to_string();
         let var = to_var(&ident_string);
@@ -327,7 +327,6 @@ impl State<phases::ReadyForCodegen> {
         let after = &self.extra.after;
         let poll_method = &self.extra.poll_method;
         let description_ident = &*self.extra.description_ident;
-        let ty_generics = self.extra.generics.split_for_impl().1;
 
         let ready = self.transitions.iter().map(|t| {
             let t_var = to_var(t.to_string());
@@ -386,15 +385,16 @@ impl State<phases::ReadyForCodegen> {
         let me = &self.ident;
         let after = &self.extra.after;
         let ty_generics = self.extra.generics.split_for_impl().1;
+        let (_, after_ty_generics, _) = self.extra.after_state_generics.split_for_impl();
         let error_type = &*self.extra.error_type;
         let futures_crate = &*self.extra.futures_crate;
         let smf_crate = &*self.extra.smf_crate;
 
         quote! {
             #poll_method_doc
-            fn #poll_method<'a>(
-                &'a mut #smf_crate::RentToOwn<'a, #me #ty_generics>
-            ) -> #futures_crate::Poll<#after #ty_generics, #error_type>;
+            fn #poll_method<'smf_poll>(
+                &'smf_poll mut #smf_crate::RentToOwn<'smf_poll, #me #ty_generics>
+            ) -> #futures_crate::Poll<#after #after_ty_generics, #error_type>;
         }
     }
 }
@@ -405,7 +405,9 @@ impl ToTokens for State<phases::ReadyForCodegen> {
         let ident_name = self.ident.to_string();
         let ident = &self.ident;
         let attrs = &self.attrs;
-        let (impl_generics, ty_generics, where_clause) = self.extra.generics.split_for_impl();
+        let (impl_generics, _, where_clause) = self.extra.generics.split_for_impl();
+        let (after_impl_generics, after_ty_generics, after_where_clause) =
+            self.extra.after_state_generics.split_for_impl();
 
         let derive = if self.extra.derive.is_empty() {
             quote!{}
@@ -453,13 +455,15 @@ impl ToTokens for State<phases::ReadyForCodegen> {
 
         let after_ident = &self.extra.after;
 
-        let after_variants: Vec<_> = self.transitions
+        let after_variants: Vec<_> = self.extra
+            .transition_state_generics
             .iter()
-            .map(|s| {
+            .map(|(s, g)| {
                 let doc = doc_string(format!(
                     "A transition from the `{}` state to the `{}` state.",
                     ident_name, s
                 ));
+                let ty_generics = g.split_for_impl().1;
                 quote! {
                     #doc
                     #s(#s #ty_generics)
@@ -467,14 +471,17 @@ impl ToTokens for State<phases::ReadyForCodegen> {
             })
             .collect();
 
-        let after_froms: Vec<_> = self.transitions
+        let after_froms: Vec<_> = self.extra
+            .transition_state_generics
             .iter()
-            .map(|s| {
+            .map(|(s, g)| {
                 let s_var = to_var(s.to_string());
+                let trans_ty_generics = g.split_for_impl().1;
+
                 quote! {
-                    impl #impl_generics From<#s #ty_generics>
-                        for #after_ident #ty_generics #where_clause {
-                        fn from(#s_var: #s #ty_generics) -> Self {
+                    impl #after_impl_generics From<#s #trans_ty_generics>
+                        for #after_ident #after_ty_generics #after_where_clause {
+                        fn from(#s_var: #s #trans_ty_generics) -> Self {
                             #after_ident::#s(#s_var)
                         }
                     }
@@ -489,7 +496,7 @@ impl ToTokens for State<phases::ReadyForCodegen> {
 
         tokens.append(quote! {
             #after_doc
-            #vis enum #after_ident #impl_generics #where_clause {
+            #vis enum #after_ident #after_impl_generics #after_where_clause {
                 #( #after_variants ),*
             }
             #( #after_froms )*
