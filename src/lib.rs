@@ -12,6 +12,7 @@ boilerplate for you.
 * [Guide](#guide)
 * [Example](#example)
 * [Attributes](#attributes)
+* [Macro](#macro)
 * [Features](#features)
 * [License](#license)
 * [Contribution](#contribution)
@@ -358,7 +359,7 @@ impl PollGame for Game {
             active: invite.from,
             idle: invite.to,
         };
-        Ok(Async::Ready(waiting.into()))
+        transition!(waiting)
     }
 
     fn poll_waiting_for_turn<'a>(
@@ -375,8 +376,7 @@ impl PollGame for Game {
         // and request the turn over HTTP.
         let waiting = waiting.take();
         if let Some(game_result) = process_turn(turn) {
-            let finished = Finished(game_result);
-            Ok(Async::Ready(finished.into()))
+            transition!(Finished(game_result))
         } else {
             let next_waiting = WaitingForTurn {
                 turn: waiting.idle.request_turn(),
@@ -435,6 +435,17 @@ generated `Future` implementation uses the field's type as `Future::Error`.
 a variant of the state machine description `enum`. Describes the states that
 this one can transition to.
 
+## Macro
+
+An auxiliary macro is provided that helps reducing boilerplate code for state
+transitions. So, the following code:
+
+```Ok(Ready(NextState(1).into()))```
+
+Can be reduced to:
+
+```transition!(NextState(1))```
+
 ## Features
 
 Here are the `cargo` features that you can enable:
@@ -483,6 +494,8 @@ extern crate derive_state_machine_future;
 pub use derive_state_machine_future::*;
 
 mod compile_fail_tests;
+#[macro_use]
+mod transition;
 
 /// Re-export of `rent_to_own::RentToOwn`.
 pub type RentToOwn<'a, T> = rent_to_own::RentToOwn<'a, T>;
