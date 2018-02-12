@@ -13,8 +13,11 @@ pub enum Machine {
     /// Choose which next state to go into depending on what start value is
     /// given.
     #[state_machine_future(start)]
-    #[state_machine_future(transitions(Ready))]
+    #[state_machine_future(transitions(Ready, TransitionMacro))]
     Start,
+
+    #[state_machine_future(transitions(Ready))]
+    TransitionMacro,
 
     #[state_machine_future(ready)] Ready(usize),
 
@@ -24,5 +27,9 @@ pub enum Machine {
 impl PollMachine for Machine {
     fn poll_start<'a>(_: &'a mut RentToOwn<'a, Start>) -> Poll<AfterStart, usize> {
         Ok(Async::Ready(Ready(1).into()))
+    }
+
+    fn poll_transition_macro<'a>(_: &'a mut RentToOwn<'a, TransitionMacro>) -> Poll<AfterTransitionMacro, usize> {
+        transition!(Ready(2))
     }
 }
