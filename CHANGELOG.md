@@ -28,6 +28,19 @@ Released YYYY/MM/DD
 
 --------------------------------------------------------------------------------
 
+# 0.1.6
+
+Released 2018/02/12
+
+## Added
+
+* Added the `transition!(..)` macro to make state transitions a little bit less
+  boilerplate-y. [#16][]
+
+[#16]: https://github.com/fitzgen/state_machine_future/pull/16
+
+--------------------------------------------------------------------------------
+
 # 0.1.5
 
 Released 2018/1/4
