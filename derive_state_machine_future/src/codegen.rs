@@ -177,11 +177,24 @@ impl ToTokens for StateMachine<phases::ReadyForCodegen> {
                                 #f: conjure()
                             }
                         });
+
+                        let match_fields = s.data.fields.iter().map(|f| {
+                            let f = &f.ident;
+                            quote! {
+                                ref #f
+                            }
+                        });
+
                         quote! {
                             let _ = ::std::mem::replace(
                                 xxx,
                                 #ident::#s_ident { #( #fields ),* },
                             );
+
+                            match *xxx {
+                                #ident::#s_ident { #( #match_fields ),* } => { unimplemented!() },
+                                _ => { unimplemented!() },
+                            }
                         }
                     }
                 }
