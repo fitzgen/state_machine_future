@@ -49,19 +49,17 @@ consistent code style across the whole code base.
 You can install the latest version of `rustfmt` with this command:
 
 ```
-$ rustup update nightly
-$ cargo install -f rustfmt-nightly
+$ rustup component add rustfmt-preview --toolchain nightly
 ```
 
-Ensure that `~/.cargo/bin` is on your path.
+Ensure that `~/.rustup/toolchains/$YOUR_HOST_TARGET/bin/` is on your `$PATH`.
 
-Once that is taken care of, you can (re)format all code by running this command:
+Once that is taken care of, you can (re)format all code by running this command
+from the root of the repository:
 
 ```
-$ cargo fmt
+$ cargo +nightly fmt
 ```
-
-The code style is described in the `rustfmt.toml` file in top level of the repo.
 
 ## Pull Requests
 
