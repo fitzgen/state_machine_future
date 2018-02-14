@@ -11,11 +11,14 @@ pub enum Fsm {
     #[state_machine_future(transitions(Future))]
     Async,
 
-    #[state_machine_future(transitions(Poll))] Future,
+    #[state_machine_future(transitions(Poll))]
+    Future,
 
-    #[state_machine_future(transitions(RentToOwn))] Poll,
+    #[state_machine_future(transitions(RentToOwn))]
+    Poll,
 
-    #[state_machine_future(transitions(StateMachineFuture))] RentToOwn,
+    #[state_machine_future(transitions(StateMachineFuture))]
+    RentToOwn,
 
     #[state_machine_future(ready)]
     #[state_machine_future(error)]

@@ -23,9 +23,11 @@ pub enum Machine {
     #[state_machine_future(transitions(Ready))]
     AlwaysReady,
 
-    #[state_machine_future(ready)] Ready(usize),
+    #[state_machine_future(ready)]
+    Ready(usize),
 
-    #[state_machine_future(error)] Error(usize),
+    #[state_machine_future(error)]
+    Error(usize),
 }
 
 impl PollMachine for Machine {

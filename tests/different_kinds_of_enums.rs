@@ -13,12 +13,11 @@ pub enum Fsm {
     #[state_machine_future(transitions(Tuple))]
     Unit,
 
-    #[state_machine_future(transitions(Struct))] Tuple(usize, bool),
+    #[state_machine_future(transitions(Struct))]
+    Tuple(usize, bool),
 
-    #[state_machine_future(transitions(Done))] Struct {
-        x: usize,
-        y: bool,
-    },
+    #[state_machine_future(transitions(Done))]
+    Struct { x: usize, y: bool },
 
     #[state_machine_future(ready)]
     #[state_machine_future(error)]

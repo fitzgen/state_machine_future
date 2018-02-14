@@ -16,9 +16,11 @@ pub enum Fsm {
     #[state_machine_future(transitions(Ready))]
     Start,
 
-    #[state_machine_future(ready)] Ready(MyReady),
+    #[state_machine_future(ready)]
+    Ready(MyReady),
 
-    #[state_machine_future(error)] Error(MyError),
+    #[state_machine_future(error)]
+    Error(MyError),
 }
 
 impl PollFsm for Fsm {
