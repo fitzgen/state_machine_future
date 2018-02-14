@@ -16,7 +16,8 @@ pub enum Fsm {
     #[state_machine_future(transitions(Middle, End))]
     Begin,
 
-    #[state_machine_future(transitions(End))] Middle(()),
+    #[state_machine_future(transitions(End))]
+    Middle(()),
 
     #[state_machine_future(ready)]
     #[state_machine_future(error)]

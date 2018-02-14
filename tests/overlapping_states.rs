@@ -20,8 +20,10 @@ pub enum NotOverlapping {
     #[state_machine_future(start)]
     #[state_machine_future(transitions(Ready, Error))]
     Start,
-    #[state_machine_future(ready)] Ready(()),
-    #[state_machine_future(error)] Error(()),
+    #[state_machine_future(ready)]
+    Ready(()),
+    #[state_machine_future(error)]
+    Error(()),
 }
 
 impl PollNotOverlapping for NotOverlapping {

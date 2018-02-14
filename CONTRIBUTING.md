@@ -49,16 +49,30 @@ consistent code style across the whole code base.
 You can install the latest version of `rustfmt` with this command:
 
 ```
-$ rustup update nightly
-$ cargo install -f rustfmt-nightly
+$ rustup component add rustfmt-preview --toolchain nightly
 ```
 
-Ensure that `~/.cargo/bin` is on your path.
+Ensure that `~/.rustup/toolchains/$YOUR_HOST_TARGET/bin/` is on your `$PATH`.
 
-Once that is taken care of, you can (re)format all code by running this command:
+Once that is taken care of, you can (re)format all code by running this command
+from the root of the repository:
 
 ```
-$ cargo fmt
+$ cargo +nightly fmt
 ```
 
-The code style is described in the `rustfmt.toml` file in top level of the repo.
+## Pull Requests
+
+All pull requests must be reviewed and approved of by at least one [team](#team)
+member before merging.
+
+## Team
+
+* `fitzgen`
+* `bkchr`
+
+Larger, more nuanced decisions about design, architecture, breaking changes,
+trade offs, etc are made by team consensus. In other words, decisions on things
+that aren't straightforward improvements or bug fixes to things that already
+exist in `state_machine_future`. If consensus can't be made, then `fitzgen` has
+the last word.

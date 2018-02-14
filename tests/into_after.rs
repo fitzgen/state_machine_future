@@ -19,9 +19,11 @@ pub enum Machine {
     #[state_machine_future(transitions(Ready))]
     TransitionMacro,
 
-    #[state_machine_future(ready)] Ready(usize),
+    #[state_machine_future(ready)]
+    Ready(usize),
 
-    #[state_machine_future(error)] Error(usize),
+    #[state_machine_future(error)]
+    Error(usize),
 }
 
 impl PollMachine for Machine {
@@ -29,7 +31,9 @@ impl PollMachine for Machine {
         Ok(Async::Ready(Ready(1).into()))
     }
 
-    fn poll_transition_macro<'a>(_: &'a mut RentToOwn<'a, TransitionMacro>) -> Poll<AfterTransitionMacro, usize> {
+    fn poll_transition_macro<'a>(
+        _: &'a mut RentToOwn<'a, TransitionMacro>,
+    ) -> Poll<AfterTransitionMacro, usize> {
         transition!(Ready(2))
     }
 }

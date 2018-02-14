@@ -40,16 +40,18 @@ where
     E: Debug,
     C: 'c,
     'c: 'd,
-    D: AssociatedTypesTrait<Type=E>,
+    D: AssociatedTypesTrait<Type = E>,
 {
     /// The start state.
     #[state_machine_future(start)]
     #[state_machine_future(transitions(Complex, AssociatedType, Ready, Error))]
     Start(StartType<'a, 'c, 'd, T, C>, D),
 
-    #[state_machine_future(transitions(Ready, Error))] Complex(&'a i32, &'d u32),
+    #[state_machine_future(transitions(Ready, Error))]
+    Complex(&'a i32, &'d u32),
 
-    #[state_machine_future(transitions(Ready, Error))] AssociatedType(D),
+    #[state_machine_future(transitions(Ready, Error))]
+    AssociatedType(D),
 
     /// Some generic ready state.
     #[state_machine_future(ready)]
@@ -66,7 +68,7 @@ where
     E: Debug,
     C: 'c,
     'c: 'd,
-    D: AssociatedTypesTrait<Type=E>,
+    D: AssociatedTypesTrait<Type = E>,
 {
     fn poll_start<'b>(
         _: &'b mut RentToOwn<'b, Start<'a, 'c, 'd, T, E, C, D>>,
@@ -78,7 +80,9 @@ where
         unimplemented!()
     }
 
-    fn poll_associated_type<'b>(_: &'b mut RentToOwn<'b, AssociatedType<E, D>>) -> Poll<AfterAssociatedType<E>, E> {
+    fn poll_associated_type<'b>(
+        _: &'b mut RentToOwn<'b, AssociatedType<E, D>>,
+    ) -> Poll<AfterAssociatedType<E>, E> {
         unimplemented!()
     }
 }
@@ -97,10 +101,13 @@ impl AssociatedTypesTrait for String {
 fn check_generic_start() {
     let test = String::from("test");
 
-    let _: Box<Future<Item = i32, Error = io::Error>> = Box::new(Fsm::start(StartType {
-        _data: 0,
-        _phan: Default::default(),
-        _phan2: Default::default(),
-        _phan3: Default::default(),
-    }, test));
+    let _: Box<Future<Item = i32, Error = io::Error>> = Box::new(Fsm::start(
+        StartType {
+            _data: 0,
+            _phan: Default::default(),
+            _phan2: Default::default(),
+            _phan3: Default::default(),
+        },
+        test,
+    ));
 }
