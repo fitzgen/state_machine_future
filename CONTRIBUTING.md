@@ -62,3 +62,19 @@ $ cargo fmt
 ```
 
 The code style is described in the `rustfmt.toml` file in top level of the repo.
+
+## Pull Requests
+
+All pull requests must be reviewed and approved of by at least one [team](#team)
+member before merging.
+
+## Team
+
+* `fitzgen`
+* `bkchr`
+
+Larger, more nuanced decisions about design, architecture, breaking changes,
+trade offs, etc are made by team consensus. In other words, decisions on things
+that aren't straightforward improvements or bug fixes to things that already
+exist in `state_machine_future`. If consensus can't be made, then `fitzgen` has
+the last word.
