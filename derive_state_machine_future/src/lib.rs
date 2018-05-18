@@ -9,6 +9,7 @@ extern crate petgraph;
 extern crate proc_macro;
 #[macro_use]
 extern crate quote;
+#[macro_use]
 extern crate syn;
 
 mod ast;
@@ -19,14 +20,11 @@ use ast::StateMachine;
 use darling::FromDeriveInput;
 use phases::Pass;
 use proc_macro::TokenStream;
-use quote::ToTokens;
+use quote::{Tokens, ToTokens};
 
 #[proc_macro_derive(StateMachineFuture, attributes(state_machine_future))]
 pub fn derive_state_machine_future(tokens: TokenStream) -> TokenStream {
-    let source = tokens.to_string();
-
-    let derive_input =
-        syn::parse_derive_input(&source).expect("should parse source into derive input");
+    let derive_input = syn::parse(tokens).expect("should parse source into derive input");
 
     let machine = match StateMachine::<phases::Parsed>::from_derive_input(&derive_input) {
         Ok(sm) => sm,
@@ -40,10 +38,8 @@ pub fn derive_state_machine_future(tokens: TokenStream) -> TokenStream {
     let machine = phases::AfterStateGenerics::pass(machine);
     let machine = phases::ReadyForCodegen::pass(machine);
 
-    let mut tokens = quote!();
+    let mut tokens: Tokens = quote!();
     machine.to_tokens(&mut tokens);
 
-    tokens
-        .parse()
-        .expect("should parse expanded output source into tokens")
+    tokens.into()
 }

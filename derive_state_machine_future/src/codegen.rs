@@ -5,7 +5,7 @@ use darling;
 use heck::SnakeCase;
 use phases;
 use quote::{self, ToTokens};
-use syn;
+use syn::{self, Ident};
 
 fn doc_string<S: AsRef<str>>(s: S) -> quote::Tokens {
     let s = s.as_ref();
@@ -16,11 +16,11 @@ fn doc_string<S: AsRef<str>>(s: S) -> quote::Tokens {
     doc.push('\n');
 
     let mut tokens = quote!{};
-    quote::Ident::new(doc).to_tokens(&mut tokens);
+    Ident::from(doc).to_tokens(&mut tokens);
     tokens
 }
 
-fn to_var<S: AsRef<str>>(s: S) -> quote::Ident {
+fn to_var<S: AsRef<str>>(s: S) -> Ident {
     let s = s.as_ref().to_snake_case();
     match s.as_str() {
         "abstract" | "alignof" | "as" | "become" | "box" | "break" | "const" | "continue"
@@ -32,9 +32,9 @@ fn to_var<S: AsRef<str>>(s: S) -> quote::Ident {
         | "yield" | "bool" | "_" => {
             let mut var = String::from("var_");
             var.push_str(&s);
-            quote::Ident::new(var)
+            Ident::from(var)
         }
-        _ => quote::Ident::new(s),
+        _ => Ident::from(s),
     }
 }
 
@@ -73,10 +73,10 @@ impl ToTokens for StateMachine<phases::ReadyForCodegen> {
         let start_state_ident = &start.ident;
 
         let ready = &states[self.extra.ready];
-        let future_item = &ready.data.fields[0];
+        let future_item = &ready.fields.fields[0];
 
         let error = &states[self.extra.error];
-        let future_error = &error.data.fields[0];
+        let future_error = &error.fields.fields[0];
 
         let state_machine_attrs = &self.attrs;
 
@@ -86,27 +86,27 @@ impl ToTokens for StateMachine<phases::ReadyForCodegen> {
         state_machine_name.push_str("Future");
 
         let ident = &self.ident;
-        let state_machine_ident = quote::Ident::new(state_machine_name.as_str());
+        let state_machine_ident = Ident::from(state_machine_name.as_str());
         let states_enum = &*self.extra.states_enum;
 
-        let start_params = match start.data.style {
+        let start_params = match start.fields.style {
             darling::ast::Style::Unit => vec![],
             darling::ast::Style::Tuple => start
-                .data
+                .fields
                 .fields
                 .iter()
                 .cloned()
                 .enumerate()
                 .map(|(i, mut f)| {
-                    f.ident = Some(syn::Ident::new(format!("arg{}", i)));
+                    f.ident = Some(syn::Ident::from(format!("arg{}", i)));
                     f
                 })
                 .collect(),
-            darling::ast::Style::Struct => start.data.fields.clone(),
+            darling::ast::Style::Struct => start.fields.fields.clone(),
         };
         let start_params = &start_params;
 
-        let start_value = match start.data.style {
+        let start_value = match start.fields.style {
             darling::ast::Style::Unit => quote! {
                 #start_state_ident
             },
@@ -147,18 +147,18 @@ impl ToTokens for StateMachine<phases::ReadyForCodegen> {
 
         let mut quiet = "__smf_quiet_warnings_for_".to_string();
         quiet += &state_machine_name.to_snake_case();
-        let quiet = quote::Ident::new(quiet);
+        let quiet = Ident::from(quiet);
 
         let quiet_constructions: Vec<_> = self.states()
             .iter()
             .map(|s| {
                 let s_ident = &s.ident;
-                match s.data.style {
+                match s.fields.style {
                     darling::ast::Style::Unit => quote! {
                         let _ = ::std::mem::replace(xxx, #ident::#s_ident);
                     },
                     darling::ast::Style::Tuple => {
-                        let fields = s.data.fields.iter().map(|_| {
+                        let fields = s.fields.fields.iter().map(|_| {
                             quote! {
                                 conjure()
                             }
@@ -171,14 +171,14 @@ impl ToTokens for StateMachine<phases::ReadyForCodegen> {
                         }
                     }
                     darling::ast::Style::Struct => {
-                        let fields = s.data.fields.iter().map(|f| {
+                        let fields = s.fields.fields.iter().map(|f| {
                             let f = &f.ident;
                             quote! {
                                 #f: conjure()
                             }
                         });
 
-                        let match_fields = s.data.fields.iter().map(|f| {
+                        let match_fields = s.fields.fields.iter().map(|f| {
                             let f = &f.ident;
                             quote! {
                                 ref #f
@@ -201,7 +201,7 @@ impl ToTokens for StateMachine<phases::ReadyForCodegen> {
             })
             .collect();
 
-        tokens.append(quote! {
+        tokens.append_all(quote! {
             extern crate futures as #futures_crate;
             extern crate state_machine_future as #smf_crate;
 
@@ -309,7 +309,7 @@ impl ToTokens for StateMachine<phases::ReadyForCodegen> {
 }
 
 impl State<phases::ReadyForCodegen> {
-    fn future_poll_match_arm(&self, ty_generics: &syn::TyGenerics) -> quote::Tokens {
+    fn future_poll_match_arm(&self, ty_generics: &syn::TypeGenerics) -> quote::Tokens {
         let ident = &self.ident;
         let ident_string = ident.to_string();
         let var = to_var(&ident_string);
@@ -431,18 +431,18 @@ impl ToTokens for State<phases::ReadyForCodegen> {
             }
         };
 
-        let fields: Vec<_> = self.data
+        let fields: Vec<_> = self.fields
             .fields
             .iter()
             .map(|f| {
                 let mut f = f.clone();
-                f.vis = syn::Visibility::Public;
+                f.vis = syn::parse_str("pub").unwrap();
                 f
             })
             .collect();
 
-        tokens.append(quote::Ident::new("\n\n"));
-        tokens.append(match self.data.style {
+        // tokens.append(Ident::new("\n\n"));
+        tokens.append_all(match self.fields.style {
             darling::ast::Style::Unit => quote! {
                 #( #attrs )*
                 #derive
@@ -507,7 +507,7 @@ impl ToTokens for State<phases::ReadyForCodegen> {
             ident_name
         ));
 
-        tokens.append(quote! {
+        tokens.append_all(quote! {
             #after_doc
             #vis enum #after_ident #after_impl_generics #after_where_clause {
                 #( #after_variants ),*
