@@ -28,6 +28,23 @@ Released YYYY/MM/DD
 
 --------------------------------------------------------------------------------
 
+# 0.1.7
+
+Released 2018/06/04
+
+## Added
+
+* Added [@bkchr][] to the team! \o/
+
+## Fixed
+
+* Fixed potential "field is never used" warning from inside the generated code. [#19][]
+
+[#19]: https://github.com/fitzgen/state_machine_future/pull/19
+[@bkchr]: https://github.com/bkchr
+
+--------------------------------------------------------------------------------
+
 # 0.1.6
 
 Released 2018/02/12
