@@ -21,7 +21,7 @@ rent_to_own = "0.1.0"
 
 [dependencies.derive_state_machine_future]
 path = "./derive_state_machine_future/"
-version = "0.1.7"
+version = "=0.1.7"
 
 [features]
 # For debugging purposes, print the generated code to stdout during
