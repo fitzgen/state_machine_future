@@ -27,7 +27,7 @@ use phases::Pass;
 
 #[proc_macro_derive(StateMachineFuture, attributes(state_machine_future))]
 pub fn derive_state_machine_future(input: TokenStream) -> TokenStream {
-    let derive_input = syn::parse(input).expect("should parse source into derive input");
+    let derive_input = parse_macro_input!(input as syn::DeriveInput);
 
     let machine = match StateMachine::<phases::Parsed>::from_derive_input(&derive_input) {
         Ok(sm) => sm,

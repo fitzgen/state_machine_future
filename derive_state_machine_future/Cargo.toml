@@ -14,12 +14,12 @@ workspace = ".."
 repository = "fitzgen/state_machine_future"
 
 [dependencies]
-darling = "0.7.0"
+darling = "0.8.0"
 heck = "0.3.0"
 petgraph = "0.4.11"
 proc-macro2 = "0.4.4"
 quote = "0.6.3"
-syn = "0.14.1"
+syn = "0.15.0"
 
 [features]
 # For debugging purposes, print the generated code to stdout during

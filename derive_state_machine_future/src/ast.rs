@@ -178,6 +178,7 @@ collect_idents!(syn::AngleBracketedGenericArguments, args);
 collect_idents!(syn::BareFnArg, ty);
 collect_idents!(syn::Binding, ty);
 collect_idents!(syn::BoundLifetimes, lifetimes);
+collect_idents!(syn::Constraint, bounds);
 collect_idents!(syn::ExprBinary, left, right);
 collect_idents!(syn::ExprCall, func, args);
 collect_idents!(syn::ExprCast, expr, ty);
@@ -302,6 +303,7 @@ impl CollectIdents for syn::GenericArgument {
             syn::GenericArgument::Lifetime(ref lifetime) => lifetime.collect_idents(idents),
             syn::GenericArgument::Type(ref ty) => ty.collect_idents(idents),
             syn::GenericArgument::Binding(ref binding) => binding.collect_idents(idents),
+            syn::GenericArgument::Constraint(ref constraint) => constraint.collect_idents(idents),
             syn::GenericArgument::Const(_) => {},
         }
     }
