@@ -1,23 +1,30 @@
 //! Phases of our custom derive compiler, and passes that perform phase changes.
 
-use ast::{CollectIdents, StateMachine};
+use std::collections::{HashMap, HashSet};
+use std::fmt;
+use std::hash::{BuildHasher, Hash};
+use std::iter::FromIterator;
+use std::rc::Rc;
+
 use darling;
+use darling::usage::{
+    CollectLifetimes, CollectTypeParams,
+    GenericsExt, IdentRefSet, LifetimeRefSet, Purpose, UsesTypeParams,
+};
 use heck::SnakeCase;
 use petgraph;
 use petgraph::algo::has_path_connecting;
-use quote;
-use std::collections::{HashMap, HashSet};
-use std::fmt;
-use std::iter::FromIterator;
-use std::rc::Rc;
+use proc_macro2::{Ident, Span};
 use syn;
 
-// Create a dummy `FromMetaItem` implementation for the given type. This is only
+use ast::StateMachine;
+
+// Create a dummy `FromMeta` implementation for the given type. This is only
 // used because the way that `darling` emits bounds on generic items forces all
 // our extra state to implement a bunch of things that it won't ever use.
-macro_rules! dummy_from_meta_item {
+macro_rules! dummy_from_meta {
     ( $t:ty ) => {
-        impl darling::FromMetaItem for $t {}
+        impl darling::FromMeta for $t {}
     }
 }
 
@@ -34,13 +41,13 @@ macro_rules! dummy_default {
 
 /// A phase represents a state in the pipeline, and the extra data we've
 /// accumulated up to this point.
-pub trait Phase: fmt::Debug + darling::FromMetaItem {
+pub trait Phase: fmt::Debug + darling::FromMeta {
     /// Extra data accumulated on the `StateMachine` at this phase.
-    type StateMachineExtra: Default + fmt::Debug + darling::FromMetaItem;
+    type StateMachineExtra: Default + fmt::Debug + darling::FromMeta;
 
     /// Extra data accumulated on each `State` in the `StateMachine` at this
     /// phase.
-    type StateExtra: Default + fmt::Debug + darling::FromMetaItem;
+    type StateExtra: Default + fmt::Debug + darling::FromMeta;
 }
 
 /// A special phase representing the lack of a phase.
@@ -49,7 +56,7 @@ pub trait Phase: fmt::Debug + darling::FromMetaItem {
 /// phase data and are operating on them independently.
 ///
 /// See `State::split` and `StateMachine::split` for usage.
-#[derive(FromMetaItem, Debug)]
+#[derive(FromMeta, Debug)]
 pub struct NoPhase;
 
 impl Phase for NoPhase {
@@ -70,7 +77,7 @@ pub trait Pass: Phase {
 }
 
 /// The state machine AST has been parsed from the custom derive input.
-#[derive(FromMetaItem, Debug)]
+#[derive(FromMeta, Debug)]
 pub struct Parsed;
 
 impl Phase for Parsed {
@@ -80,7 +87,7 @@ impl Phase for Parsed {
 
 /// We've found the indices into `states` for the unique start, ready, and error
 /// states.
-#[derive(FromMetaItem, Debug, Default)]
+#[derive(FromMeta, Debug, Default)]
 pub struct StartReadyError {
     pub start: usize,
     pub ready: usize,
@@ -113,11 +120,11 @@ impl Pass for StartReadyError {
                     if state.ready {
                         assert!(ready.is_none(), "There must only be a single `ready` state");
                         assert!(
-                            state.data.style.is_tuple(),
+                            state.fields.style.is_tuple(),
                             "The `ready` state must be a tuple variant, for example: `Ready(Item)`"
                         );
                         assert_eq!(
-                            state.data.fields.len(),
+                            state.fields.fields.len(),
                             1,
                             "The `ready` state must only have one field, for example: `Ready(Item)`"
                         );
@@ -131,11 +138,11 @@ impl Pass for StartReadyError {
                     if state.error {
                         assert!(error.is_none(), "There must only be a single `error` state");
                         assert!(
-                            state.data.style.is_tuple(),
+                            state.fields.style.is_tuple(),
                             "The `error` state must be a tuple variant, for example: `Error(Item)`"
                         );
                         assert_eq!(
-                            state.data.fields.len(),
+                            state.fields.fields.len(),
                             1,
                             "The `error` state must only have one field, for example: `Error(Item)`"
                         );
@@ -176,7 +183,7 @@ impl Pass for StartReadyError {
 /// A phase after which we know that all transitions are to valid states. That
 /// is, we will never get any "cannot find type `UnknownState` in this scope"
 /// compilation errors from any code we emit.
-#[derive(FromMetaItem, Debug)]
+#[derive(FromMeta, Debug)]
 pub struct ValidTransitionEdges;
 
 impl Phase for ValidTransitionEdges {
@@ -216,7 +223,7 @@ impl Pass for ValidTransitionEdges {
 
 /// All paths through the state machine's states lead to the ready or error
 /// state, and no intermediate state is unreachable.
-#[derive(FromMetaItem, Debug)]
+#[derive(FromMeta, Debug)]
 pub struct ValidPaths;
 
 impl Phase for ValidPaths {
@@ -305,7 +312,7 @@ impl Pass for ValidPaths {
 }
 
 /// Builds the generics for all states, based on the generics of the state machine.
-#[derive(FromMetaItem, Debug)]
+#[derive(FromMeta, Debug)]
 pub struct StateGenerics;
 
 dummy_default!(StateGenerics);
@@ -316,7 +323,7 @@ pub struct StateGenericsExtra {
 }
 
 dummy_default!(StateGenericsExtra);
-dummy_from_meta_item!(StateGenericsExtra);
+dummy_from_meta!(StateGenericsExtra);
 
 impl Phase for StateGenerics {
     type StateMachineExtra = <ValidPaths as Phase>::StateMachineExtra;
@@ -327,148 +334,264 @@ impl Pass for StateGenerics {
     type FromPhase = ValidPaths;
 
     fn pass(machine: StateMachine<ValidPaths>) -> StateMachine<StateGenerics> {
-        // For each parameter(type parameters, lifetimes or where predicates of the generic
-        // arguments), collect the set of bounds it participates in and the set of all idents used
-        // by those bounds. E.g. `MyClass<T: Clone>` for `T` generates (`T: Clone`, `T`, `Clone`).
-        // The `get_bound` function takes a generic parameter and returns the applicable bounds as
-        // a `R`.
-        fn prepare_generic_params<'a, T, F, R>(
-            params: &'a [T],
-            get_bound: F,
-        ) -> Vec<(&'a T, R, HashSet<syn::Ident>)>
-        where
-            F: Fn(&'a T) -> R,
-            T: CollectIdents,
-        {
-            params
-                .iter()
-                .map(|p| {
-                    let mut idents = HashSet::new();
-                    p.collect_idents(&mut idents);
-
-                    (p, get_bound(p), idents)
-                })
-                .collect::<Vec<_>>()
-        }
-
-        // Checks if a generic parameter is part of the `state_idents` (the idents used by the
-        // state) by calling the `contains_bound` function. If `contains_bound` returns true, all
-        // idents that were collected for this generic parameter are added to the `state_idents`.
-        // For example `<T: Clone>`, adds ident 'Clone' to `state_idents`. Or, `<C, T = C>` for `T`,
-        // adds ident 'C' to `state_idents`.
-        fn extend_state_idents<R, S, F>(
-            state_idents: &mut HashSet<syn::Ident>,
-            params: &[(R, S, HashSet<syn::Ident>)],
-            contains_bound: F,
-        ) where
-            F: Fn(&HashSet<syn::Ident>, &S) -> bool,
-        {
-            let mut iter = params.iter();
-            while let Some(&(_, ref bound, ref idents)) = iter.next() {
-                if contains_bound(state_idents, bound) {
-                    let old_len = state_idents.len();
-                    state_idents.extend(idents.iter().cloned());
-
-                    // When new elements are added, start from the beginning.
-                    // The current generic_param could have added an ident that belongs to a
-                    // generic_param before this generic_param. So, by starting at the beginning,
-                    // we ensure that all generic_params are added.
-                    assert!(old_len <= state_idents.len());
-                    if old_len != state_idents.len() {
-                        iter = params.iter();
-                        continue;
-                    }
-                }
-            }
-        }
-
         machine.and_then(|machine, extra, states| {
             let states = {
                 let mgenerics = &machine.generics;
 
-                // We begin with preparing all params of the machine generics
-                let ty_params = prepare_generic_params(&mgenerics.ty_params, |t| &t.ident);
-                let lifetimes = prepare_generic_params(&mgenerics.lifetimes, |l| &l.lifetime.ident);
-                let where_preds = prepare_generic_params(&mgenerics.where_clause.predicates, |w| {
-                    let mut bound_idents = HashSet::new();
-                    match w {
-                        &syn::WherePredicate::BoundPredicate(ref bound) => {
-                            bound.bounded_ty.collect_idents(&mut bound_idents)
+                // Return a `HashMap` of keys mapped to `Vec`s of values. Keys and values
+                // are taken from `(Key, Value)` tuple pairs yielded by the input iterator.
+                fn into_group_map<I, K, V, S>(iter: I) -> HashMap<K, Vec<V>, S>
+                where
+                    I: Iterator<Item = (K, V)>,
+                    K: Hash + Eq,
+                    S: BuildHasher + Default,
+                {
+                    let mut lookup = HashMap::default();
+
+                    for (key, val) in iter {
+                        lookup.entry(key).or_insert_with(Vec::new).push(val);
+                    }
+
+                    lookup
+                }
+
+                // Return a `HashMap` of keys mapped to `Vec`s of values. Keys and values
+                // are taken from `(IntoIterator<Item = Key>, Value)` tuple pairs yielded by the
+                // input iterator.
+                fn into_group_map_multikey<I, J, K, V, S>(iter: I) -> HashMap<K, Vec<V>, S>
+                where
+                    I: Iterator<Item = (J, V)>,
+                    J: IntoIterator<Item = K>,
+                    K: Hash + Eq,
+                    V: Clone,
+                    S: BuildHasher + Default,
+                {
+                    let mut lookup = HashMap::default();
+
+                    for (keys, val) in iter {
+                        for key in keys {
+                            lookup.entry(key).or_insert_with(Vec::new).push(val.clone());
                         }
-                        &syn::WherePredicate::EqPredicate(ref eq) => {
-                            eq.lhs_ty.collect_idents(&mut bound_idents)
+                    }
+
+                    lookup
+                }
+
+                let options = Purpose::Declare.into();
+                let declared_lifetimes = mgenerics.declared_lifetimes();
+                let declared_type_params = mgenerics.declared_type_params();
+
+                // Collect declared lifetimes with their definitions.
+                //
+                // E.g. for `'a: 'b + 'c` the hash map wil have:
+                // * `'a` as key;
+                // * `'a: 'b + 'c` as value.
+                let lifetime_defs = mgenerics
+                    .lifetimes()
+                    .map(|ld| (&ld.lifetime, ld))
+                    .collect::<HashMap<_, _>>();
+
+                // Collect declared type parameter identifiers with their definitions.
+                //
+                // E.g. for `T: 'r + fmt::Debug = String` the hash map will have:
+                // * `T` as key;
+                // * `T: 'r + fmt::Debug = String` as value.
+                let type_param_defs = mgenerics
+                    .type_params()
+                    .map(|tp| (&tp.ident, tp))
+                    .collect::<HashMap<_, _>>();
+
+                // Collect lifetimes in where clauses with respective lifetime predicates.
+                //
+                // E.g. for `'a: 'b + 'c` the hash map wil have:
+                // * `'a` as key;
+                // * `'a: 'b + 'c` as value.
+                let where_clause_lifetimes = mgenerics.where_clause.as_ref().map(|where_clause| {
+                    into_group_map(where_clause.predicates.iter().filter_map(|predicate| {
+                        match *predicate {
+                            syn::WherePredicate::Type(_) => None,
+                            syn::WherePredicate::Lifetime(ref lifetime_def) => {
+                                Some((&lifetime_def.lifetime, predicate))
+                            },
+                            syn::WherePredicate::Eq(_) => None,
                         }
-                        &syn::WherePredicate::RegionPredicate(ref region) => {
-                            bound_idents.insert(region.lifetime.ident.clone());
+                    }))
+                }).unwrap_or_else(HashMap::new);
+
+                // Collect type parameter identifiers in where clauses with respective type and
+                // equality predicates.
+                //
+                // E.g. for `for<'c> Foo<'c, P>: Trait<'c, P>` the hash map will have:
+                // * `{Foo, P}` as key;
+                // * `for<'c> Foo<'c, P>: Trait<'c, P>` as value.
+                //
+                // Or e.g. for `X = Bar` the hash map will have:
+                // * `X` as key;
+                // * `X = Bar` as value.
+                let where_clause_types = mgenerics.where_clause.as_ref().map(|where_clause| {
+                    let declared_type_params_ref = &declared_type_params;
+                    into_group_map_multikey(where_clause.predicates.iter().filter_map(|predicate| {
+                        match *predicate {
+                            syn::WherePredicate::Type(ref type_param) => {
+                                let idents = type_param.bounded_ty
+                                    .uses_type_params(&options, declared_type_params_ref);
+                                Some((idents, predicate))
+                            },
+                            syn::WherePredicate::Lifetime(_) => None,
+                            syn::WherePredicate::Eq(ref eq) => {
+                                let idents = eq.lhs_ty
+                                    .uses_type_params(&options, declared_type_params_ref);
+                                Some((idents, predicate))
+                            },
                         }
-                    };
-                    bound_idents
-                });
+                    }))
+                }).unwrap_or_else(HashMap::new);
 
                 states
                     .into_iter()
                     .map(|state| {
+                        // Perform a breadth-first search across the graph of dependencies between
+                        // lifetimes and type parameters, then collect all reachable nodes as
+                        // generic parameters and where predicates.
                         state.and_then(|state, ()| {
-                            // Collect all the idents of the state
-                            let mut state_idents = HashSet::new();
-                            state
-                                .data
-                                .fields
-                                .iter()
-                                .for_each(|f| f.ty.collect_idents(&mut state_idents));
+                            // Lifetimes and type parameter identifiers for processing in any
+                            // current iteration.
+                            let mut current_lifetimes = state.fields.fields
+                                .collect_lifetimes(&options, &declared_lifetimes);
+                            let mut current_type_params = state.fields.fields
+                                .collect_type_params(&options, &declared_type_params);
 
-                            // Begin with the where predicates
-                            extend_state_idents(
-                                &mut state_idents,
-                                where_preds.as_slice(),
-                                |state_idents, bounds| {
-                                    bounds.iter().any(|b| state_idents.contains(b))
-                                },
-                            );
-                            // Then the ty_params
-                            extend_state_idents(
-                                &mut state_idents,
-                                ty_params.as_slice(),
-                                |state_idents, bound| state_idents.contains(bound),
-                            );
-                            // And the lifetimes lastly
-                            extend_state_idents(
-                                &mut state_idents,
-                                lifetimes.as_slice(),
-                                |state_idents, bound| state_idents.contains(bound),
-                            );
+                            // Lifetimes and type parameter identifiers we already processed.
+                            let mut state_lifetimes = LifetimeRefSet::default();
+                            let mut state_type_params = IdentRefSet::default();
 
-                            // After we have ALL important idents, we filter out all not necessary
-                            // params
-                            let where_preds = where_preds
-                                .iter()
-                                .filter(|&&(_, ref bounds, _)| {
-                                    bounds.iter().any(|b| state_idents.contains(b))
-                                })
-                                .map(|v| v.0)
-                                .cloned()
-                                .collect();
+                            // While we have new lifetimes and type parameter identifiers to
+                            // process...
+                            while !current_lifetimes.is_empty() || !current_type_params.is_empty() {
+                                // Collect elements for the next iteration from definitions and
+                                // where predicates.
+                                //
+                                // @hcpl: made as a macro because I have no idea how to generalize
+                                // this as a function in a readable way.
+                                macro_rules! new_elems_from_elem {
+                                    (
+                                        $elem:ident,
+                                        $elem_defs:ident,
+                                        $where_clause_elems:ident,
+                                        $collect_elems:ident,
+                                        $declared_elems:ident,
+                                    ) => {{
+                                        let from_def_bounds = $elem_defs
+                                            .get($elem)
+                                            .unwrap()
+                                            .bounds
+                                            .$collect_elems(&options, &$declared_elems)
+                                            .into_iter();
+                                        let from_where_clause_bounds = $where_clause_elems
+                                            .get($elem)
+                                            .map(|predicates| predicates.iter().map(|p| *p))
+                                            .into_iter()
+                                            .flat_map(|ps| ps)
+                                            .$collect_elems(&options, &$declared_elems)
+                                            .into_iter();
 
-                            let ty_params = ty_params
-                                .iter()
-                                .filter(|&&(_, ref bound, _)| state_idents.contains(bound))
-                                .map(|v| v.0)
-                                .cloned()
-                                .collect();
+                                        from_def_bounds.chain(from_where_clause_bounds)
+                                    }};
+                                }
 
-                            let lifetimes = lifetimes
-                                .iter()
-                                .filter(|&&(_, ref bound, _)| state_idents.contains(bound))
-                                .map(|v| v.0)
-                                .cloned()
-                                .collect();
+                                // Collect lifetimes for the next_iteration.
+                                let new_lifetimes = current_lifetimes.iter().flat_map(|lifetime| {
+                                    new_elems_from_elem!(
+                                        lifetime, lifetime_defs, where_clause_lifetimes,
+                                        collect_lifetimes, declared_lifetimes,
+                                    )
+                                }).chain(current_type_params.iter().flat_map(|ident| {
+                                    new_elems_from_elem!(
+                                        ident, type_param_defs, where_clause_types,
+                                        collect_lifetimes, declared_lifetimes,
+                                    )
+                                })).filter(|lifetime| {
+                                    !state_lifetimes.contains(lifetime)
+                                        && !current_lifetimes.contains(lifetime)
+                                }).collect();
+
+                                // Collect type parameter identifiers for the next iteration.
+                                let new_type_params = current_type_params.iter().flat_map(|ident| {
+                                    new_elems_from_elem!(
+                                        ident, type_param_defs, where_clause_types,
+                                        collect_type_params, declared_type_params,
+                                    )
+                                }).filter(|ident| {
+                                    !state_type_params.contains(ident)
+                                        && !current_type_params.contains(ident)
+                                }).collect();
+
+                                // Prepare the loop state for the next iteration.
+                                state_lifetimes.extend(current_lifetimes);
+                                state_type_params.extend(current_type_params);
+
+                                current_lifetimes = new_lifetimes;
+                                current_type_params = new_type_params;
+                            }
+
+                            // Collect generic parameters for this state.
+                            // The result will preserve the order they were declared for the state
+                            // machine enum.
+                            let params = {
+                                let param_lifetime_defs = mgenerics
+                                    .lifetimes()
+                                    .map(|lifetime_def| &lifetime_def.lifetime)
+                                    .filter(|lifetime| state_lifetimes.contains(lifetime))
+                                    .map(|lifetime| {
+                                        let lifetime_def = *lifetime_defs.get(lifetime).unwrap();
+                                        syn::GenericParam::Lifetime(lifetime_def.clone())
+                                    });
+
+                                let param_type_param_defs = mgenerics
+                                    .type_params()
+                                    .map(|type_param| &type_param.ident)
+                                    .filter(|ident| state_type_params.contains(ident))
+                                    .map(|ident| {
+                                        let type_param = *type_param_defs.get(ident).unwrap();
+                                        syn::GenericParam::Type(type_param.clone())
+                                    });
+
+                                param_lifetime_defs.chain(param_type_param_defs).collect()
+                            };
+
+                            // Collect where predicates for this state.
+                            // The result will preserve the order they were declared for the state
+                            // machine enum.
+                            let where_preds = {
+                                let where_preds_lifetimes = state_lifetimes
+                                    .iter()
+                                    .filter_map(|lifetime| {
+                                        where_clause_lifetimes.get(lifetime).map(|predicates| {
+                                            predicates.iter().map(|&p| p.clone())
+                                        })
+                                    })
+                                    .flat_map(|ps| ps);
+
+                                let where_preds_types = state_type_params
+                                    .iter()
+                                    .filter_map(|ident| {
+                                        where_clause_types.get(ident).map(|predicates| {
+                                            predicates.iter().map(|&p| p.clone())
+                                        })
+                                    })
+                                    .flat_map(|ps| ps);
+
+                                where_preds_lifetimes.chain(where_preds_types).collect()
+                            };
 
                             let generics = Rc::new(syn::Generics {
-                                lifetimes,
-                                ty_params,
-                                where_clause: syn::WhereClause {
+                                lt_token: Some(<Token![<]>::default()),
+                                params,
+                                gt_token: Some(<Token![>]>::default()),
+                                where_clause: Some(syn::WhereClause {
+                                    where_token: <Token![where]>::default(),
                                     predicates: where_preds,
-                                },
+                                }),
                             });
 
                             state.join(StateGenericsExtra { generics })
@@ -483,7 +606,7 @@ impl Pass for StateGenerics {
 }
 
 /// This state builds the generic parameters for the after state enums.
-#[derive(FromMetaItem, Debug)]
+#[derive(FromMeta, Debug)]
 pub struct AfterStateGenerics;
 
 dummy_default!(AfterStateGenerics);
@@ -499,7 +622,7 @@ pub struct AfterStateGenericsExtra {
 }
 
 dummy_default!(AfterStateGenericsExtra);
-dummy_from_meta_item!(AfterStateGenericsExtra);
+dummy_from_meta!(AfterStateGenericsExtra);
 
 impl Phase for AfterStateGenerics {
     type StateMachineExtra = <StateGenerics as Phase>::StateMachineExtra;
@@ -524,57 +647,76 @@ impl Pass for AfterStateGenerics {
                     .into_iter()
                     .map(|state| {
                         state.and_then(|state, extra| {
-                            // Filter all generic_params in the order they appear in the machine
-                            // generics.
-                            let lifetimes = mgenerics
-                                .lifetimes
-                                .iter()
-                                .filter(|l| {
-                                    state.transitions.iter().any(|ident| {
-                                        ident_to_generics
-                                            .get(ident)
-                                            .map(|v| v.lifetimes.contains(l))
-                                            .unwrap_or(false)
+                            let params = {
+                                // Filter all generic_params in the order they appear in the machine
+                                // generics.
+                                let lifetimes = mgenerics
+                                    .lifetimes()
+                                    .filter(|l| {
+                                        state.transitions.iter().any(|ident| {
+                                            ident_to_generics
+                                                .get(ident)
+                                                .map(|v| v.lifetimes().any(|l_| l_ == *l))
+                                                .unwrap_or(false)
+                                        })
                                     })
-                                })
-                                .cloned()
-                                .collect::<Vec<_>>();
+                                    .cloned();
 
-                            let ty_params = mgenerics
-                                .ty_params
-                                .iter()
-                                .filter(|t| {
-                                    state.transitions.iter().any(|ident| {
-                                        ident_to_generics
-                                            .get(ident)
-                                            .map(|v| v.ty_params.contains(t))
-                                            .unwrap_or(false)
+                                let type_params = mgenerics
+                                    .type_params()
+                                    .filter(|t| {
+                                        state.transitions.iter().any(|ident| {
+                                            ident_to_generics
+                                                .get(ident)
+                                                .map(|v| v.type_params().any(|t_| t_ == *t))
+                                                .unwrap_or(false)
+                                        })
                                     })
-                                })
-                                .cloned()
-                                .collect::<Vec<_>>();
+                                    .cloned();
+
+                                type_params.map(syn::GenericParam::Type)
+                                    .chain(lifetimes.map(syn::GenericParam::Lifetime))
+                                    .collect()
+                            };
 
                             let where_preds = mgenerics
                                 .where_clause
-                                .predicates
-                                .iter()
-                                .filter(|p| {
-                                    state.transitions.iter().any(|ident| {
-                                        ident_to_generics
-                                            .get(ident)
-                                            .map(|v| v.where_clause.predicates.contains(p))
-                                            .unwrap_or(false)
-                                    })
+                                .as_ref()
+                                .map(|clause| {
+                                    clause
+                                        .predicates
+                                        .iter()
+                                        .filter(|p| {
+                                            state.transitions.iter().any(|ident| {
+                                                ident_to_generics
+                                                    .get(ident)
+                                                    .map(|v| {
+                                                        v.where_clause
+                                                            .as_ref()
+                                                            .map(|clause| {
+                                                                clause
+                                                                    .predicates
+                                                                    .iter()
+                                                                    .any(|p_| p_ == *p)
+                                                            })
+                                                            .unwrap_or(false)
+                                                    })
+                                                    .unwrap_or(false)
+                                            })
+                                        })
+                                        .cloned()
+                                        .collect()
                                 })
-                                .cloned()
-                                .collect::<Vec<_>>();
+                                .unwrap_or_default();
 
                             let after_state_generics = Rc::new(syn::Generics {
-                                lifetimes,
-                                ty_params,
-                                where_clause: syn::WhereClause {
+                                lt_token: Some(<Token![<]>::default()),
+                                params,
+                                gt_token: Some(<Token![>]>::default()),
+                                where_clause: Some(syn::WhereClause {
+                                    where_token: <Token![where]>::default(),
                                     predicates: where_preds,
-                                },
+                                }),
                             });
 
                             let transition_state_generics = ident_to_generics
@@ -606,34 +748,34 @@ pub struct ReadyForCodegen {
     pub start: usize,
     pub ready: usize,
     pub error: usize,
-    pub states_enum: Rc<quote::Ident>,
-    pub poll_trait: Rc<quote::Ident>,
-    pub futures_crate: Rc<quote::Ident>,
-    pub smf_crate: Rc<quote::Ident>,
+    pub states_enum: Rc<Ident>,
+    pub poll_trait: Rc<Ident>,
+    pub futures_crate: Rc<Ident>,
+    pub smf_crate: Rc<Ident>,
 }
 
 dummy_default!(ReadyForCodegen);
-dummy_from_meta_item!(ReadyForCodegen);
+dummy_from_meta!(ReadyForCodegen);
 
 #[derive(Debug)]
 pub struct CodegenStateExtra {
     pub vis: Rc<syn::Visibility>,
     pub description_ident: Rc<syn::Ident>,
-    pub states_enum: Rc<quote::Ident>,
-    pub error_type: Rc<syn::Ty>,
+    pub states_enum: Rc<Ident>,
+    pub error_type: Rc<syn::Type>,
     pub error_ident: Rc<syn::Ident>,
-    pub after: quote::Ident,
+    pub after: Ident,
     pub derive: Rc<darling::util::IdentList>,
-    pub poll_trait: Rc<quote::Ident>,
-    pub poll_method: quote::Ident,
-    pub futures_crate: Rc<quote::Ident>,
-    pub smf_crate: Rc<quote::Ident>,
+    pub poll_trait: Rc<Ident>,
+    pub poll_method: Ident,
+    pub futures_crate: Rc<Ident>,
+    pub smf_crate: Rc<Ident>,
     pub generics: Rc<syn::Generics>,
     pub after_state_generics: Rc<syn::Generics>,
     pub transition_state_generics: HashMap<syn::Ident, Rc<syn::Generics>>,
 }
 
-dummy_from_meta_item!(CodegenStateExtra);
+dummy_from_meta!(CodegenStateExtra);
 dummy_default!(CodegenStateExtra);
 
 impl Phase for ReadyForCodegen {
@@ -659,7 +801,7 @@ impl Pass for ReadyForCodegen {
             let error_ident = states[error].ident.clone();
             let error_ident = Rc::new(error_ident);
 
-            let error_type = states[error].data.fields[0].ty.clone();
+            let error_type = states[error].fields.fields[0].ty.clone();
             let error_type = Rc::new(error_type);
 
             let derive = Rc::new(machine.derive.clone());
@@ -668,21 +810,21 @@ impl Pass for ReadyForCodegen {
 
             let mut states_enum = machine_name.clone();
             states_enum += "States";
-            let states_enum = Rc::new(quote::Ident::new(states_enum));
+            let states_enum = Rc::new(Ident::new(&states_enum, Span::call_site()));
 
             let mut poll_trait = String::from("Poll");
             poll_trait += &machine_name;
-            let poll_trait = Rc::new(quote::Ident::new(poll_trait));
+            let poll_trait = Rc::new(Ident::new(&poll_trait, Span::call_site()));
 
             let mut futures_crate = String::from("__smf_");
             futures_crate += machine_name.clone().to_snake_case().as_str();
             futures_crate += "_futures";
-            let futures_crate = Rc::new(quote::Ident::new(futures_crate));
+            let futures_crate = Rc::new(Ident::new(&futures_crate, Span::call_site()));
 
             let mut smf_crate = String::from("__smf_");
             smf_crate += machine_name.clone().to_snake_case().as_str();
             smf_crate += "_state_machine_future";
-            let smf_crate = Rc::new(quote::Ident::new(smf_crate));
+            let smf_crate = Rc::new(Ident::new(&smf_crate, Span::call_site()));
 
             let states = states
                 .into_iter()
@@ -705,11 +847,11 @@ impl Pass for ReadyForCodegen {
 
                         let mut after = String::from("After");
                         after.push_str(&ident_name);
-                        let after = quote::Ident::new(after);
+                        let after = Ident::new(&after, Span::call_site());
 
                         let mut poll_method = String::from("poll_");
                         poll_method.push_str(&ident_name.to_snake_case());
-                        let poll_method = quote::Ident::new(poll_method);
+                        let poll_method = Ident::new(&poll_method, Span::call_site());
 
                         state.join(CodegenStateExtra {
                             vis,

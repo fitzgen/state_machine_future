@@ -1,4 +1,4 @@
-//! Test that we handle overlapping start/ready/error states properly.
+//! Test that we handle generics properly.
 //!
 //! Here's the deal: we don't figure out which generics are used in which
 //! variants, so it is up to you to add phantom datas as needed.

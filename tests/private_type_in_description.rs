@@ -1,4 +1,4 @@
-//! Test that we get the expected poll results.
+//! Test that we don't leak private types in public API.
 
 extern crate futures;
 #[macro_use]

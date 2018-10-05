@@ -1,4 +1,4 @@
-//! Test that the appropriat start method is generated for the original enum.
+//! Test that the appropriate start method is generated for the original enum.
 
 extern crate futures;
 #[macro_use]
