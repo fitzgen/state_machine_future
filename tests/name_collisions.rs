@@ -5,6 +5,16 @@ extern crate futures;
 #[macro_use]
 extern crate state_machine_future;
 
+#[allow(dead_code)]
+fn futures() {}
+#[allow(dead_code)]
+fn state_machine_future() {}
+
+#[allow(unused_macros)]
+macro_rules! futures { () => {} }
+#[allow(unused_macros)]
+macro_rules! state_machine_future { () => {} }
+
 #[derive(StateMachineFuture)]
 pub enum Fsm {
     #[state_machine_future(start)]
