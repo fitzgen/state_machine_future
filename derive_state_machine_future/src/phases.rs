@@ -2,17 +2,22 @@
 
 use std::collections::{HashMap, HashSet};
 use std::fmt;
+use std::hash::{BuildHasher, Hash};
 use std::iter::FromIterator;
 use std::rc::Rc;
 
 use darling;
+use darling::usage::{
+    CollectLifetimes, CollectTypeParams,
+    GenericsExt, IdentRefSet, LifetimeRefSet, Purpose, UsesTypeParams,
+};
 use heck::SnakeCase;
 use petgraph;
 use petgraph::algo::has_path_connecting;
 use proc_macro2::{Ident, Span};
 use syn;
 
-use ast::{CollectIdents, StateMachine};
+use ast::StateMachine;
 
 // Create a dummy `FromMeta` implementation for the given type. This is only
 // used because the way that `darling` emits bounds on generic items forces all
@@ -329,146 +334,255 @@ impl Pass for StateGenerics {
     type FromPhase = ValidPaths;
 
     fn pass(machine: StateMachine<ValidPaths>) -> StateMachine<StateGenerics> {
-        // For each parameter(type parameters, lifetimes or where predicates of the generic
-        // arguments), collect the set of bounds it participates in and the set of all idents used
-        // by those bounds. E.g. `MyClass<T: Clone>` for `T` generates (`T: Clone`, `T`, `Clone`).
-        // The `get_bound` function takes a generic parameter and returns the applicable bounds as
-        // a `R`.
-        fn prepare_generic_params<'a, I, T, F, R>(
-            params: I,
-            get_bound: F,
-        ) -> Vec<(&'a T, R, HashSet<syn::Ident>)>
-        where
-            I: Iterator<Item = &'a T>,
-            F: Fn(&'a T) -> R,
-            T: CollectIdents,
-        {
-            params
-                .map(|p| {
-                    let mut idents = HashSet::new();
-                    p.collect_idents(&mut idents);
-
-                    (p, get_bound(p), idents)
-                })
-                .collect::<Vec<_>>()
-        }
-
-        // Checks if a generic parameter is part of the `state_idents` (the idents used by the
-        // state) by calling the `contains_bound` function. If `contains_bound` returns true, all
-        // idents that were collected for this generic parameter are added to the `state_idents`.
-        // For example `<T: Clone>`, adds ident 'Clone' to `state_idents`. Or, `<C, T = C>` for `T`,
-        // adds ident 'C' to `state_idents`.
-        fn extend_state_idents<R, S, F>(
-            state_idents: &mut HashSet<syn::Ident>,
-            params: &[(R, S, HashSet<syn::Ident>)],
-            contains_bound: F,
-        ) where
-            F: Fn(&HashSet<syn::Ident>, &S) -> bool,
-        {
-            let mut iter = params.iter();
-            while let Some(&(_, ref bound, ref idents)) = iter.next() {
-                if contains_bound(state_idents, bound) {
-                    let old_len = state_idents.len();
-                    state_idents.extend(idents.iter().cloned());
-
-                    // When new elements are added, start from the beginning.
-                    // The current generic_param could have added an ident that belongs to a
-                    // generic_param before this generic_param. So, by starting at the beginning,
-                    // we ensure that all generic_params are added.
-                    assert!(old_len <= state_idents.len());
-                    if old_len != state_idents.len() {
-                        iter = params.iter();
-                        continue;
-                    }
-                }
-            }
-        }
-
         machine.and_then(|machine, extra, states| {
             let states = {
                 let mgenerics = &machine.generics;
 
-                // We begin with preparing all params of the machine generics
-                let type_params = prepare_generic_params(mgenerics.type_params(), |t| &t.ident);
-                let lifetimes = prepare_generic_params(mgenerics.lifetimes(), |l| &l.lifetime.ident);
-                let where_preds = match mgenerics.where_clause {
-                    None => Vec::new(),
-                    Some(ref clause) => prepare_generic_params(clause.predicates.iter(), |w| {
-                        let mut bound_idents = HashSet::new();
-                        match *w {
-                            syn::WherePredicate::Type(ref ty) => {
-                                ty.bounded_ty.collect_idents(&mut bound_idents);
-                            }
-                            syn::WherePredicate::Lifetime(ref lifetime) => {
-                                lifetime.lifetime.collect_idents(&mut bound_idents);
-                            }
-                            syn::WherePredicate::Eq(ref eq) => {
-                                eq.lhs_ty.collect_idents(&mut bound_idents);
-                            }
+                // Return a `HashMap` of keys mapped to `Vec`s of values. Keys and values
+                // are taken from `(Key, Value)` tuple pairs yielded by the input iterator.
+                fn into_group_map<I, K, V, S>(iter: I) -> HashMap<K, Vec<V>, S>
+                where
+                    I: Iterator<Item = (K, V)>,
+                    K: Hash + Eq,
+                    S: BuildHasher + Default,
+                {
+                    let mut lookup = HashMap::default();
+
+                    for (key, val) in iter {
+                        lookup.entry(key).or_insert_with(Vec::new).push(val);
+                    }
+
+                    lookup
+                }
+
+                // Return a `HashMap` of keys mapped to `Vec`s of values. Keys and values
+                // are taken from `(IntoIterator<Item = Key>, Value)` tuple pairs yielded by the
+                // input iterator.
+                fn into_group_map_multikey<I, J, K, V, S>(iter: I) -> HashMap<K, Vec<V>, S>
+                where
+                    I: Iterator<Item = (J, V)>,
+                    J: IntoIterator<Item = K>,
+                    K: Hash + Eq,
+                    V: Clone,
+                    S: BuildHasher + Default,
+                {
+                    let mut lookup = HashMap::default();
+
+                    for (keys, val) in iter {
+                        for key in keys {
+                            lookup.entry(key).or_insert_with(Vec::new).push(val.clone());
                         }
-                        bound_idents
-                    }),
-                };
+                    }
+
+                    lookup
+                }
+
+                let options = Purpose::Declare.into();
+                let declared_lifetimes = mgenerics.declared_lifetimes();
+                let declared_type_params = mgenerics.declared_type_params();
+
+                // Collect declared lifetimes with their definitions.
+                //
+                // E.g. for `'a: 'b + 'c` the hash map wil have:
+                // * `'a` as key;
+                // * `'a: 'b + 'c` as value.
+                let lifetime_defs = mgenerics
+                    .lifetimes()
+                    .map(|ld| (&ld.lifetime, ld))
+                    .collect::<HashMap<_, _>>();
+
+                // Collect declared type parameter identifiers with their definitions.
+                //
+                // E.g. for `T: 'r + fmt::Debug = String` the hash map will have:
+                // * `T` as key;
+                // * `T: 'r + fmt::Debug = String` as value.
+                let type_param_defs = mgenerics
+                    .type_params()
+                    .map(|tp| (&tp.ident, tp))
+                    .collect::<HashMap<_, _>>();
+
+                // Collect lifetimes in where clauses with respective lifetime predicates.
+                //
+                // E.g. for `'a: 'b + 'c` the hash map wil have:
+                // * `'a` as key;
+                // * `'a: 'b + 'c` as value.
+                let where_clause_lifetimes = mgenerics.where_clause.as_ref().map(|where_clause| {
+                    into_group_map(where_clause.predicates.iter().filter_map(|predicate| {
+                        match *predicate {
+                            syn::WherePredicate::Type(_) => None,
+                            syn::WherePredicate::Lifetime(ref lifetime_def) => {
+                                Some((&lifetime_def.lifetime, predicate))
+                            },
+                            syn::WherePredicate::Eq(_) => None,
+                        }
+                    }))
+                }).unwrap_or_else(HashMap::new);
+
+                // Collect type parameter identifiers in where clauses with respective type and
+                // equality predicates.
+                //
+                // E.g. for `for<'c> Foo<'c, P>: Trait<'c, P>` the hash map will have:
+                // * `{Foo, P}` as key;
+                // * `for<'c> Foo<'c, P>: Trait<'c, P>` as value.
+                //
+                // Or e.g. for `X = Bar` the hash map will have:
+                // * `X` as key;
+                // * `X = Bar` as value.
+                let where_clause_types = mgenerics.where_clause.as_ref().map(|where_clause| {
+                    let declared_type_params_ref = &declared_type_params;
+                    into_group_map_multikey(where_clause.predicates.iter().filter_map(|predicate| {
+                        match *predicate {
+                            syn::WherePredicate::Type(ref type_param) => {
+                                let idents = type_param.bounded_ty
+                                    .uses_type_params(&options, declared_type_params_ref);
+                                Some((idents, predicate))
+                            },
+                            syn::WherePredicate::Lifetime(_) => None,
+                            syn::WherePredicate::Eq(ref eq) => {
+                                let idents = eq.lhs_ty
+                                    .uses_type_params(&options, declared_type_params_ref);
+                                Some((idents, predicate))
+                            },
+                        }
+                    }))
+                }).unwrap_or_else(HashMap::new);
 
                 states
                     .into_iter()
                     .map(|state| {
+                        // Perform a breadth-first search across the graph of dependencies between
+                        // lifetimes and type parameters, then collect all reachable nodes as
+                        // generic parameters and where predicates.
                         state.and_then(|state, ()| {
-                            // Collect all the idents of the state
-                            let mut state_idents = HashSet::new();
-                            state
-                                .fields
-                                .fields
-                                .iter()
-                                .for_each(|f| f.ty.collect_idents(&mut state_idents));
+                            // Lifetimes and type parameter identifiers for processing in any
+                            // current iteration.
+                            let mut current_lifetimes = state.fields.fields
+                                .collect_lifetimes(&options, &declared_lifetimes);
+                            let mut current_type_params = state.fields.fields
+                                .collect_type_params(&options, &declared_type_params);
 
-                            // Begin with the where predicates
-                            extend_state_idents(
-                                &mut state_idents,
-                                where_preds.as_slice(),
-                                |state_idents, bounds| {
-                                    bounds.iter().any(|b| state_idents.contains(b))
-                                },
-                            );
-                            // Then the type_params
-                            extend_state_idents(
-                                &mut state_idents,
-                                type_params.as_slice(),
-                                |state_idents, bound| state_idents.contains(bound),
-                            );
-                            // And the lifetimes lastly
-                            extend_state_idents(
-                                &mut state_idents,
-                                lifetimes.as_slice(),
-                                |state_idents, bound| state_idents.contains(bound),
-                            );
+                            // Lifetimes and type parameter identifiers we already processed.
+                            let mut state_lifetimes = LifetimeRefSet::default();
+                            let mut state_type_params = IdentRefSet::default();
 
-                            // After we have ALL important idents, we filter out all not necessary
-                            // params
-                            let where_preds = where_preds
-                                .iter()
-                                .filter(|&&(_, ref bounds, _)| {
-                                    bounds.iter().any(|b| state_idents.contains(b))
-                                })
-                                .map(|v| v.0)
-                                .cloned()
-                                .collect();
+                            // While we have new lifetimes and type parameter identifiers to
+                            // process...
+                            while !current_lifetimes.is_empty() || !current_type_params.is_empty() {
+                                // Collect elements for the next iteration from definitions and
+                                // where predicates.
+                                //
+                                // @hcpl: made as a macro because I have no idea how to generalize
+                                // this as a function in a readable way.
+                                macro_rules! new_elems_from_elem {
+                                    (
+                                        $elem:ident,
+                                        $elem_defs:ident,
+                                        $where_clause_elems:ident,
+                                        $collect_elems:ident,
+                                        $declared_elems:ident,
+                                    ) => {{
+                                        let from_def_bounds = $elem_defs
+                                            .get($elem)
+                                            .unwrap()
+                                            .bounds
+                                            .$collect_elems(&options, &$declared_elems)
+                                            .into_iter();
+                                        let from_where_clause_bounds = $where_clause_elems
+                                            .get($elem)
+                                            .map(|predicates| predicates.iter().map(|p| *p))
+                                            .into_iter()
+                                            .flat_map(|ps| ps)
+                                            .$collect_elems(&options, &$declared_elems)
+                                            .into_iter();
 
-                            let type_params = type_params
-                                .iter()
-                                .filter(|&&(_, ref bound, _)| state_idents.contains(bound))
-                                .map(|v| v.0)
-                                .cloned();
+                                        from_def_bounds.chain(from_where_clause_bounds)
+                                    }};
+                                }
 
-                            let lifetimes = lifetimes
-                                .iter()
-                                .filter(|&&(_, ref bound, _)| state_idents.contains(bound))
-                                .map(|v| v.0)
-                                .cloned();
+                                // Collect lifetimes for the next_iteration.
+                                let new_lifetimes = current_lifetimes.iter().flat_map(|lifetime| {
+                                    new_elems_from_elem!(
+                                        lifetime, lifetime_defs, where_clause_lifetimes,
+                                        collect_lifetimes, declared_lifetimes,
+                                    )
+                                }).chain(current_type_params.iter().flat_map(|ident| {
+                                    new_elems_from_elem!(
+                                        ident, type_param_defs, where_clause_types,
+                                        collect_lifetimes, declared_lifetimes,
+                                    )
+                                })).filter(|lifetime| {
+                                    !state_lifetimes.contains(lifetime)
+                                        && !current_lifetimes.contains(lifetime)
+                                }).collect();
 
-                            let params = type_params.map(syn::GenericParam::Type)
-                                .chain(lifetimes.map(syn::GenericParam::Lifetime))
-                                .collect();
+                                // Collect type parameter identifiers for the next iteration.
+                                let new_type_params = current_type_params.iter().flat_map(|ident| {
+                                    new_elems_from_elem!(
+                                        ident, type_param_defs, where_clause_types,
+                                        collect_type_params, declared_type_params,
+                                    )
+                                }).filter(|ident| {
+                                    !state_type_params.contains(ident)
+                                        && !current_type_params.contains(ident)
+                                }).collect();
+
+                                // Prepare the loop state for the next iteration.
+                                state_lifetimes.extend(current_lifetimes);
+                                state_type_params.extend(current_type_params);
+
+                                current_lifetimes = new_lifetimes;
+                                current_type_params = new_type_params;
+                            }
+
+                            // Collect generic parameters for this state.
+                            // The result will preserve the order they were declared for the state
+                            // machine enum.
+                            let params = {
+                                let param_lifetime_defs = mgenerics
+                                    .lifetimes()
+                                    .map(|lifetime_def| &lifetime_def.lifetime)
+                                    .filter(|lifetime| state_lifetimes.contains(lifetime))
+                                    .map(|lifetime| {
+                                        let lifetime_def = *lifetime_defs.get(lifetime).unwrap();
+                                        syn::GenericParam::Lifetime(lifetime_def.clone())
+                                    });
+
+                                let param_type_param_defs = mgenerics
+                                    .type_params()
+                                    .map(|type_param| &type_param.ident)
+                                    .filter(|ident| state_type_params.contains(ident))
+                                    .map(|ident| {
+                                        let type_param = *type_param_defs.get(ident).unwrap();
+                                        syn::GenericParam::Type(type_param.clone())
+                                    });
+
+                                param_lifetime_defs.chain(param_type_param_defs).collect()
+                            };
+
+                            // Collect where predicates for this state.
+                            // The result will preserve the order they were declared for the state
+                            // machine enum.
+                            let where_preds = {
+                                let where_preds_lifetimes = state_lifetimes
+                                    .iter()
+                                    .filter_map(|lifetime| {
+                                        where_clause_lifetimes.get(lifetime).map(|predicates| {
+                                            predicates.iter().map(|&p| p.clone())
+                                        })
+                                    })
+                                    .flat_map(|ps| ps);
+
+                                let where_preds_types = state_type_params
+                                    .iter()
+                                    .filter_map(|ident| {
+                                        where_clause_types.get(ident).map(|predicates| {
+                                            predicates.iter().map(|&p| p.clone())
+                                        })
+                                    })
+                                    .flat_map(|ps| ps);
+
+                                where_preds_lifetimes.chain(where_preds_types).collect()
+                            };
 
                             let generics = Rc::new(syn::Generics {
                                 lt_token: Some(<Token![<]>::default()),
