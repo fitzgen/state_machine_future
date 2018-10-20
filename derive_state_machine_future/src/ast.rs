@@ -25,14 +25,7 @@ pub struct StateMachine<P: phases::Phase> {
     pub extra: P::StateMachineExtra,
 
     #[darling(default)]
-    pub context: Option<Context>
-}
-
-#[derive(Default, Debug, FromMeta)]
-#[darling(default)]
-pub struct Context {
-    #[darling(rename = "type")]
-    _type: String
+    pub context: Option<syn::Ident>,
 }
 
 /// In individual state in a state machine.
