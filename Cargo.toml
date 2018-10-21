@@ -1,5 +1,5 @@
 [package]
-authors = ["Nick Fitzgerald <fitzgen@gmail.com>"]
+authors = ["Nick Fitzgerald <fitzgen@gmail.com>", "Bastian Köcher <git@kchr.de>"]
 categories = ["asynchronous", "rust-patterns"]
 description = """
 Easily create type-safe `Future`s from state machines — without the boilerplate.
@@ -10,7 +10,7 @@ license = "Apache-2.0/MIT"
 name = "state_machine_future"
 readme = "./README.md"
 repository = "https://github.com/fitzgen/state_machine_future"
-version = "0.1.7"
+version = "0.1.8"
 
 [badges.travis-ci]
 repository = "fitzgen/state_machine_future"
@@ -21,7 +21,7 @@ rent_to_own = "0.1.0"
 
 [dependencies.derive_state_machine_future]
 path = "./derive_state_machine_future/"
-version = "=0.1.7"
+version = "=0.1.8"
 
 [features]
 # For debugging purposes, print the generated code to stdout during
