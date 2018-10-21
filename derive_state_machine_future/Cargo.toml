@@ -1,5 +1,5 @@
 [package]
-authors = ["Nick Fitzgerald <fitzgen@gmail.com>"]
+authors = ["Nick Fitzgerald <fitzgen@gmail.com>", "Bastian Köcher <git@kchr.de>"]
 description = """
 Custom derive implementation for the `state_machine_future` crate. Use that
 crate instead of this one directly.
@@ -7,7 +7,7 @@ crate instead of this one directly.
 license = "Apache-2.0/MIT"
 name = "derive_state_machine_future"
 repository = "https://github.com/fitzgen/state_machine_future"
-version = "0.1.7"
+version = "0.1.8"
 workspace = ".."
 
 [badges.travis-ci]

@@ -28,6 +28,20 @@ Released YYYY/MM/DD
 
 --------------------------------------------------------------------------------
 
+# 0.1.8
+
+Released 2018/10/21
+
+## Changed
+
+* Updated darling and syn to latest version. Thanks [@hcpl][]. [#26][]
+
+## Fixed
+
+* Type parameter missing when used through a projection [#25][]
+
+--------------------------------------------------------------------------------
+
 # 0.1.7
 
 Released 2018/06/04
