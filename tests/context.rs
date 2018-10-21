@@ -10,17 +10,17 @@ use futures::Future;
 use futures::Poll;
 use state_machine_future::RentToOwn;
 
-pub struct ExternalSource {
-    pub value: String,
+pub struct ExternalSource<T> {
+    pub value: T,
 }
 
-pub struct Context {
-    pub external_source: ExternalSource,
-    pub lazy_future: Option<Box<Future<Item = String, Error = ()>>>,
+pub struct Context<T> {
+    pub external_source: ExternalSource<T>,
+    pub lazy_future: Option<Box<Future<Item = T, Error = ()>>>,
 }
 
-impl Context {
-    fn load_from_external_source(&mut self) -> &mut Box<Future<Item = String, Error = ()>> {
+impl<T: Clone + 'static> Context<T> {
+    fn load_from_external_source(&mut self) -> &mut Box<Future<Item = T, Error = ()>> {
         let value = &self.external_source.value;
 
         self.lazy_future
@@ -30,22 +30,22 @@ impl Context {
 
 #[derive(StateMachineFuture)]
 #[state_machine_future(context = "Context")]
-pub enum WithContext {
+pub enum WithContext<T: Clone + 'static> {
     #[state_machine_future(start, transitions(Ready))]
     Start(()),
 
     #[state_machine_future(ready)]
-    Ready(String),
+    Ready(T),
 
     #[state_machine_future(error)]
     Error(()),
 }
 
-impl PollWithContext for WithContext {
+impl<T: Clone + 'static> PollWithContext<T> for WithContext<T> {
     fn poll_start<'a, 's>(
         _: &'a mut RentToOwn<'a, Start>,
-        context: &'s mut Context,
-    ) -> Poll<AfterStart, ()> {
+        context: &'s mut Context<T>,
+    ) -> Poll<AfterStart<T>, ()> {
 
         let value = try_ready!(context.load_from_external_source().poll());
 

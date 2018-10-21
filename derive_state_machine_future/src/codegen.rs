@@ -134,7 +134,7 @@ impl ToTokens for StateMachine<phases::ReadyForCodegen> {
         let poll_trait_methods: Vec<_> = states
             .iter()
             .filter(|s| !s.ready && !s.error)
-            .map(|state| state.poll_trait_method(self.context.as_ref()))
+            .map(|state| state.poll_trait_method(&ty_generics, self.context.as_ref()))
             .collect();
 
         let start_doc = doc_string(format!(
@@ -204,14 +204,14 @@ impl ToTokens for StateMachine<phases::ReadyForCodegen> {
 
         let context_ident = match self.context {
             Some(ref ident) => quote!{
-                , #ident
+                , #ident #ty_generics
             },
             None => quote!{},
         };
 
         let context_start_arg_decl = match self.context {
             Some(ref ident) => quote!{
-                , context: #ident
+                , context: #ident #ty_generics
             },
             None => quote!{},
         };
@@ -453,7 +453,7 @@ impl State<phases::ReadyForCodegen> {
         ))
     }
 
-    fn poll_trait_method(&self, context: Option<&syn::Ident>) -> proc_macro2::TokenStream {
+    fn poll_trait_method(&self, sm_ty_generics: &syn::TypeGenerics, context: Option<&syn::Ident>) -> proc_macro2::TokenStream {
         assert!(!self.ready && !self.error);
 
         let poll_method = &self.extra.poll_method;
@@ -468,7 +468,7 @@ impl State<phases::ReadyForCodegen> {
 
         let context_param = match context {
             Some(ident) => quote! {
-                , context: &'s mut #ident
+                , context: &'s mut #ident #sm_ty_generics
             },
             None => quote!{},
         };
