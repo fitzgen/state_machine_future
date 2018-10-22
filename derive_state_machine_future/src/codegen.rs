@@ -217,7 +217,7 @@ impl ToTokens for StateMachine<phases::ReadyForCodegen> {
         };
 
         let context_start_arg = match self.context {
-            Some(ref ident) => quote!{
+            Some(_) => quote!{
                 , context
             },
             None => quote!{},
@@ -403,7 +403,7 @@ impl State<phases::ReadyForCodegen> {
         });
 
         let poll_method_call = match context {
-            Some(ident) => quote! {
+            Some(_) => quote! {
                 |state| {
                     <#description_ident #ty_generics as #poll_trait #ty_generics>::#poll_method(state, &mut self.1)
                 }
