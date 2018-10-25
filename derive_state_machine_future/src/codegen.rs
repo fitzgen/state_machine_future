@@ -210,7 +210,7 @@ impl ToTokens for StateMachine<phases::ReadyForCodegen> {
 
             #derive
             #[allow(dead_code)]
-            enum #states_enum #impl_generics #where_clause {
+            #vis enum #states_enum #impl_generics #where_clause {
                 #( #states_variants ),*
             }
 

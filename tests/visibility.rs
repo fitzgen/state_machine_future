@@ -62,3 +62,17 @@ enum NonPub {
     #[state_machine_future(error)]
     NonPubState(()),
 }
+
+pub mod exported {
+    #[derive(StateMachineFuture)]
+    pub enum ExportedSM {
+        #[state_machine_future(start)]
+        #[state_machine_future(ready)]
+        #[state_machine_future(error)]
+        Exported(()),
+    }
+}
+
+pub fn use_generated_states_enum_outside_of_module(_: exported::ExportedSMStates) {
+    unimplemented!()
+}
