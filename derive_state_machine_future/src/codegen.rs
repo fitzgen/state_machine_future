@@ -265,6 +265,12 @@ impl ToTokens for StateMachine<phases::ReadyForCodegen> {
                         )
                     )
                 }
+
+                #vis fn start_in<STATE: Into<#states_enum #ty_generics>>( state: STATE ) -> #state_machine_ident #ty_generics {
+                    #state_machine_ident(
+                        Some(state.into())
+                    )
+                }
             }
 
             #[allow(warnings)]
@@ -276,6 +282,28 @@ impl ToTokens for StateMachine<phases::ReadyForCodegen> {
                     #quiet_constructions;
                 )*
             }
+        });
+
+        let state_froms: Vec<_> = states
+            .iter()
+            .map(|s| {
+                let state_ident = &s.ident;
+                let state_ident_var = to_var(state_ident.to_string());
+                let state_generics = s.extra.generics.split_for_impl().1;
+
+                quote! {
+                    impl #impl_generics From<#state_ident #state_generics>
+                        for #states_enum #ty_generics #where_clause {
+                        fn from(#state_ident_var: #state_ident #state_generics) -> Self {
+                            #states_enum::#state_ident(#state_ident_var)
+                        }
+                    }
+                }
+            })
+            .collect();
+
+        tokens.append_all(quote! {
+            #( #state_froms )*
         });
 
         if cfg!(feature = "debug_code_generation") {
