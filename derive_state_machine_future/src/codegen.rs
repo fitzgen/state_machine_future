@@ -435,7 +435,7 @@ impl State<phases::ReadyForCodegen> {
         quote! {
             #poll_method_doc
             fn #poll_method<'smf_poll>(
-                &'smf_poll mut #smf_crate::RentToOwn<'smf_poll, #me #ty_generics>
+                _: &'smf_poll mut #smf_crate::RentToOwn<'smf_poll, #me #ty_generics>
             ) -> #futures_crate::Poll<#after #after_ty_generics, #error_type>;
         }
     }
