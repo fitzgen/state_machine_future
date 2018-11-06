@@ -3,7 +3,7 @@ language: rust
 cache: cargo
 
 before_script:
-  - cargo install -f cargo-readme
+  - which cargo-readme || (rustup install stable && cargo +stable install cargo-readme)
 
 rust:
   - 1.21.0
