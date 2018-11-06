@@ -9,6 +9,7 @@ use futures::Async;
 use futures::Future;
 use futures::Poll;
 use state_machine_future::RentToOwn;
+use std::fmt::Debug;
 
 pub struct ExternalSource<T> {
     pub value: T,
@@ -29,7 +30,7 @@ impl<T: Clone + 'static> Context<T> {
 }
 
 #[derive(StateMachineFuture)]
-#[state_machine_future(context = "Context")]
+#[state_machine_future(context = "Context", derive(Debug))]
 pub enum WithContext<T: Clone + 'static> {
     #[state_machine_future(start, transitions(Ready))]
     Start(()),
@@ -66,3 +67,13 @@ fn can_call_to_context() {
 
     assert_eq!(machine.poll(), Ok(Async::Ready(String::from("foo"))));
 }
+
+fn check_debug<D: Debug>(_: D) {}
+
+#[test]
+fn given_sm_with_context_should_add_derives_to_states() {
+    check_debug(Start(()));
+    check_debug(Ready(10));
+    check_debug(Error(()));
+}
+

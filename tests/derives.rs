@@ -22,7 +22,3 @@ fn state_derived_debug() {
     check_debug(OnlyState(()));
 }
 
-#[test]
-fn state_machine_derived_debug() {
-    check_debug(Debuggable::start(()));
-}
