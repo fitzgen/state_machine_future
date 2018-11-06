@@ -202,6 +202,8 @@ impl ToTokens for StateMachine<phases::ReadyForCodegen> {
             })
             .collect();
 
+        let has_no_start_parameters = start_params.len() == 0;
+
         let context_field = match self.context {
             Some(ref ident) => quote!{
                 , context: Option<#ident #ty_generics>
@@ -210,6 +212,16 @@ impl ToTokens for StateMachine<phases::ReadyForCodegen> {
         };
 
         let context_start_arg_decl = match self.context {
+            Some(ref ident) if has_no_start_parameters => quote!{
+                context: #ident #ty_generics
+            },
+            Some(ref ident) => quote!{
+                , context: #ident #ty_generics
+            },
+            None => quote!{},
+        };
+
+        let context_start_in_arg_decl = match self.context {
             Some(ref ident) => quote!{
                 , context: #ident #ty_generics
             },
@@ -299,7 +311,7 @@ impl ToTokens for StateMachine<phases::ReadyForCodegen> {
                     }
                 }
 
-                #vis fn start_in<STATE: Into<#states_enum #ty_generics>>( state: STATE #context_start_arg_decl ) -> #state_machine_ident #ty_generics {
+                #vis fn start_in<STATE: Into<#states_enum #ty_generics>>( state: STATE #context_start_in_arg_decl ) -> #state_machine_ident #ty_generics {
                     #state_machine_ident {
                         current_state: Some(state.into())
                         #context_start_arg

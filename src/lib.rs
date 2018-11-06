@@ -234,6 +234,84 @@ impl PollMyStateMachine for MyStateMachine {
 }
 ```
 
+## Context
+
+The state machine also allows to pass in a context that is available in every `poll_*` method
+without having to explicitly include it in every one.
+
+The context can be specified through the `context` argument of the `state_machine_future` attribute.
+This will add parameters to the `start` method as well as to each `poll_*` method of the trait.
+
+```
+#[macro_use]
+extern crate state_machine_future;
+extern crate futures;
+
+use futures::*;
+use state_machine_future::*;
+
+struct MyContext {
+
+}
+
+struct MyItem {
+
+}
+
+enum MyError {
+
+}
+
+#[derive(StateMachineFuture)]
+#[state_machine_future(context = "MyContext")]
+enum MyStateMachine {
+    #[state_machine_future(start, transitions(Intermediate))]
+    Start,
+
+    #[state_machine_future(transitions(Start, Ready))]
+    Intermediate { x: usize, y: usize },
+
+    #[state_machine_future(ready)]
+    Ready(MyItem),
+
+    #[state_machine_future(error)]
+    Error(MyError),
+}
+
+impl PollMyStateMachine for MyStateMachine {
+    fn poll_start<'s, 'c>(
+        start: &'s mut RentToOwn<'s, Start>,
+        context: &'c mut RentToOwn<'c, MyContext>
+    ) -> Poll<AfterStart, MyError> {
+
+        // The `context` instance passed into `start` is available here.
+        // It is a mutable reference, so are free to modify it.
+
+        unimplemented!()
+    }
+
+    fn poll_intermediate<'s, 'c>(
+        intermediate: &'s mut RentToOwn<'s, Intermediate>,
+        context: &'c mut RentToOwn<'c, MyContext>
+    ) -> Poll<AfterIntermediate, MyError> {
+
+        // The `context` is available here as well.
+        // It is the same instance. This means if `poll_start` modified it, those
+        // changes will be visible to this method as well.
+
+        unimplemented!()
+    }
+}
+
+fn main() {
+    let _ = MyStateMachine::start(MyContext { });
+}
+```
+
+Same as for the state argument, the context can be taken through the `RentToOwn` type!
+However, be aware that once you take the context, the state machine will **always** return
+`Async::NotReady` **without** invoking the `poll_` methods anymore.
+
 That's it!
 
 ## Example

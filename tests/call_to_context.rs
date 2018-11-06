@@ -9,7 +9,6 @@ use futures::Async;
 use futures::Future;
 use futures::Poll;
 use state_machine_future::RentToOwn;
-use std::fmt::Debug;
 
 pub struct ExternalSource<T> {
     pub value: T,
@@ -30,7 +29,7 @@ impl<T: Clone + 'static> Context<T> {
 }
 
 #[derive(StateMachineFuture)]
-#[state_machine_future(context = "Context", derive(Debug))]
+#[state_machine_future(context = "Context")]
 pub enum WithContext<T: Clone + 'static> {
     #[state_machine_future(start, transitions(Ready))]
     Start(()),
@@ -43,9 +42,9 @@ pub enum WithContext<T: Clone + 'static> {
 }
 
 impl<T: Clone + 'static> PollWithContext<T> for WithContext<T> {
-    fn poll_start<'state, 'context>(
-        _: &'state mut RentToOwn<'state, Start>,
-        context: &'context mut RentToOwn<'context, Context<T>>,
+    fn poll_start<'s, 'c>(
+        _: &'s mut RentToOwn<'s, Start>,
+        context: &'c mut RentToOwn<'c, Context<T>>,
     ) -> Poll<AfterStart<T>, ()> {
 
         let value = try_ready!(context.load_from_external_source().poll());
@@ -67,13 +66,3 @@ fn can_call_to_context() {
 
     assert_eq!(machine.poll(), Ok(Async::Ready(String::from("foo"))));
 }
-
-fn check_debug<D: Debug>(_: D) {}
-
-#[test]
-fn given_sm_with_context_should_add_derives_to_states() {
-    check_debug(Start(()));
-    check_debug(Ready(10));
-    check_debug(Error(()));
-}
-
