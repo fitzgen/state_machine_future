@@ -42,9 +42,9 @@ pub enum WithContext<T: Clone + 'static> {
 }
 
 impl<T: Clone + 'static> PollWithContext<T> for WithContext<T> {
-    fn poll_start<'a, 's>(
-        _: &'a mut RentToOwn<'a, Start>,
-        context: &'s mut Context<T>,
+    fn poll_start<'state, 'context>(
+        _: &'state mut RentToOwn<'state, Start>,
+        context: &'context mut RentToOwn<'context, Context<T>>,
     ) -> Poll<AfterStart<T>, ()> {
 
         let value = try_ready!(context.load_from_external_source().poll());
