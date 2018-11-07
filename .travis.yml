@@ -6,7 +6,7 @@ before_script:
   - cargo install -f cargo-readme
 
 rust:
-  - 1.21.0
+  - 1.24.0
   - stable
   - beta
   - nightly
