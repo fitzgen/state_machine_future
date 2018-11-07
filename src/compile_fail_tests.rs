@@ -513,6 +513,34 @@ mod transition_to_unknown_state {
      */
 }
 
+mod derives_not_added_to_future {
+    /*!
+    ```compile_fail
+    #[macro_use]
+    extern crate state_machine_future;
+    extern crate futures;
+    use futures::*;
+    use std::fmt::Debug;
+
+    #[derive(StateMachineFuture)]
+    #[state_machine_future(derive(Debug))]
+    pub enum Debuggable {
+        #[state_machine_future(start)]
+        #[state_machine_future(ready)]
+        #[state_machine_future(error)]
+        OnlyState(()),
+    }
+
+    fn check_debug<D: Debug>(_: D) {}
+
+    fn main() {
+        check_debug(Debuggable::start(()));
+    }
+
+    ```
+     */
+}
+
 mod unreachable_intermediate_state {
     /*!
     ```compile_fail

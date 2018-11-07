@@ -127,14 +127,14 @@ impl ToTokens for StateMachine<phases::ReadyForCodegen> {
 
         let poll_match_arms: Vec<_> = states
             .iter()
-            .map(|state| state.future_poll_match_arm(&ty_generics))
+            .map(|state| state.future_poll_match_arm(&ty_generics, self.context.as_ref()))
             .collect();
 
         let poll_trait = &*self.extra.poll_trait;
         let poll_trait_methods: Vec<_> = states
             .iter()
             .filter(|s| !s.ready && !s.error)
-            .map(|state| state.poll_trait_method())
+            .map(|state| state.poll_trait_method(&ty_generics, self.context.as_ref()))
             .collect();
 
         let start_doc = doc_string(format!(
@@ -202,6 +202,49 @@ impl ToTokens for StateMachine<phases::ReadyForCodegen> {
             })
             .collect();
 
+        let has_no_start_parameters = start_params.len() == 0;
+
+        let context_field = match self.context {
+            Some(ref ident) => quote!{
+                , context: Option<#ident #ty_generics>
+            },
+            None => quote!{},
+        };
+
+        let context_start_arg_decl = match self.context {
+            Some(ref ident) if has_no_start_parameters => quote!{
+                context: #ident #ty_generics
+            },
+            Some(ref ident) => quote!{
+                , context: #ident #ty_generics
+            },
+            None => quote!{},
+        };
+
+        let context_start_in_arg_decl = match self.context {
+            Some(ref ident) => quote!{
+                , context: #ident #ty_generics
+            },
+            None => quote!{},
+        };
+
+        let context_start_arg = match self.context {
+            Some(_) => quote!{
+                , context: Some(context)
+            },
+            None => quote!{},
+        };
+
+        let extract_context = match self.context {
+            Some(_) => quote!{
+                let context = match self.context.take() {
+                    Some(context) => context,
+                    None => return Ok(#futures_crate::Async::NotReady),
+                };
+            },
+            None => quote!{},
+        };
+
         tokens.append_all(quote! {
             extern crate futures as #futures_crate;
             extern crate state_machine_future as #smf_crate;
@@ -215,11 +258,11 @@ impl ToTokens for StateMachine<phases::ReadyForCodegen> {
             }
 
             #( #state_machine_attrs )*
-            #derive
             #[must_use = "futures do nothing unless polled"]
-            #vis struct #state_machine_ident #impl_generics(
-                Option<#states_enum #ty_generics>
-            ) #where_clause;
+            #vis struct #state_machine_ident #impl_generics #where_clause {
+                current_state: Option<#states_enum #ty_generics>
+                #context_field
+            }
 
             impl #impl_generics #futures_crate::Future
                 for #state_machine_ident #ty_generics #where_clause {
@@ -229,11 +272,12 @@ impl ToTokens for StateMachine<phases::ReadyForCodegen> {
                 #[allow(unreachable_code)]
                 fn poll(&mut self) -> #futures_crate::Poll<Self::Item, Self::Error> {
                     loop {
-                        let state = match self.0.take() {
+                        let state = match self.current_state.take() {
                             Some(state) => state,
                             None => return Ok(#futures_crate::Async::NotReady),
                         };
-                        self.0 = match state {
+                        #extract_context
+                        self.current_state = match state {
                             #( #poll_match_arms )*
                         };
                     }
@@ -256,20 +300,22 @@ impl ToTokens for StateMachine<phases::ReadyForCodegen> {
             impl #impl_generics #ident #ty_generics #where_clause {
                 #start_doc
                 #[allow(dead_code)]
-                #vis fn start( #( #start_params ),* ) -> #state_machine_ident #ty_generics {
-                    #state_machine_ident(
-                        Some(
+                #vis fn start( #( #start_params ),* #context_start_arg_decl ) -> #state_machine_ident #ty_generics {
+                    #state_machine_ident {
+                        current_state: Some(
                             #states_enum::#start_state_ident(
                                 #start_value
                             )
                         )
-                    )
+                        #context_start_arg
+                    }
                 }
 
-                #vis fn start_in<STATE: Into<#states_enum #ty_generics>>( state: STATE ) -> #state_machine_ident #ty_generics {
-                    #state_machine_ident(
-                        Some(state.into())
-                    )
+                #vis fn start_in<STATE: Into<#states_enum #ty_generics>>( state: STATE #context_start_in_arg_decl ) -> #state_machine_ident #ty_generics {
+                    #state_machine_ident {
+                        current_state: Some(state.into())
+                        #context_start_arg
+                    }
                 }
             }
 
@@ -338,7 +384,7 @@ impl ToTokens for StateMachine<phases::ReadyForCodegen> {
 }
 
 impl State<phases::ReadyForCodegen> {
-    fn future_poll_match_arm(&self, ty_generics: &syn::TypeGenerics) -> proc_macro2::TokenStream {
+    fn future_poll_match_arm(&self, ty_generics: &syn::TypeGenerics, context: Option<&syn::Ident>) -> proc_macro2::TokenStream {
         let ident = &self.ident;
         let ident_string = ident.to_string();
         let var = to_var(&ident_string);
@@ -379,19 +425,40 @@ impl State<phases::ReadyForCodegen> {
             }
         });
 
+        let poll_method_call = match context {
+            Some(_) => quote! {
+                |state| {
+                    let (context, result) =
+                        #smf_crate::RentToOwn::with(
+                            context,
+                            move |context| {
+                                <#description_ident #ty_generics as #poll_trait #ty_generics>::#poll_method(state, context)
+                            }
+                        );
+
+                    self.context = context;
+
+                    result
+                }
+            },
+            None => quote! {
+                <#description_ident #ty_generics as #poll_trait #ty_generics>::#poll_method
+            },
+        };
+
         quote! {
             #states_enum::#ident(#var) => {
                 let (#var, result) =
                     #smf_crate::RentToOwn::with(
                         #var,
-                        <#description_ident #ty_generics as #poll_trait #ty_generics>::#poll_method
+                        #poll_method_call
                     );
                 match result {
                     Err(e) => {
                         Some(#states_enum::#error_ident(#error_ident(e)))
                     }
                     Ok(#futures_crate::Async::NotReady) => {
-                        self.0 = #var.map(#states_enum::#ident);
+                        self.current_state = #var.map(#states_enum::#ident);
                         return Ok(#futures_crate::Async::NotReady);
                     }
                     #( #ready )*
@@ -419,7 +486,7 @@ impl State<phases::ReadyForCodegen> {
         ))
     }
 
-    fn poll_trait_method(&self) -> proc_macro2::TokenStream {
+    fn poll_trait_method(&self, sm_ty_generics: &syn::TypeGenerics, context: Option<&syn::Ident>) -> proc_macro2::TokenStream {
         assert!(!self.ready && !self.error);
 
         let poll_method = &self.extra.poll_method;
@@ -432,10 +499,18 @@ impl State<phases::ReadyForCodegen> {
         let futures_crate = &*self.extra.futures_crate;
         let smf_crate = &*self.extra.smf_crate;
 
+        let context_param = match context {
+            Some(ident) => quote! {
+                , _: &'smf_poll_context mut #smf_crate::RentToOwn<'smf_poll_context, #ident #sm_ty_generics>
+            },
+            None => quote!{},
+        };
+
         quote! {
             #poll_method_doc
-            fn #poll_method<'smf_poll>(
-                _: &'smf_poll mut #smf_crate::RentToOwn<'smf_poll, #me #ty_generics>
+            fn #poll_method<'smf_poll_state, 'smf_poll_context>(
+                _: &'smf_poll_state mut #smf_crate::RentToOwn<'smf_poll_state, #me #ty_generics>
+                #context_param
             ) -> #futures_crate::Poll<#after #after_ty_generics, #error_type>;
         }
     }

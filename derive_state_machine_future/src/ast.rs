@@ -23,6 +23,9 @@ pub struct StateMachine<P: phases::Phase> {
     /// Extra per-phase data.
     #[darling(default)]
     pub extra: P::StateMachineExtra,
+
+    #[darling(default)]
+    pub context: Option<syn::Ident>,
 }
 
 /// In individual state in a state machine.
@@ -90,6 +93,7 @@ where
             attrs: self.attrs,
             derive: self.derive,
             extra: (),
+            context: self.context,
         };
         (machine, extra, states)
     }
@@ -118,6 +122,7 @@ impl StateMachine<phases::NoPhase> {
             attrs: self.attrs,
             derive: self.derive,
             extra,
+            context: self.context,
         }
     }
 }
