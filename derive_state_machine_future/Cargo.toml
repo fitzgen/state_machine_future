@@ -7,7 +7,7 @@ crate instead of this one directly.
 license = "Apache-2.0/MIT"
 name = "derive_state_machine_future"
 repository = "https://github.com/fitzgen/state_machine_future"
-version = "0.1.8"
+version = "0.2.0"
 workspace = ".."
 
 [badges.travis-ci]
@@ -17,8 +17,8 @@ repository = "fitzgen/state_machine_future"
 darling = "0.8.0"
 heck = "0.3.0"
 petgraph = "0.4.11"
-proc-macro2 = "0.4.4"
-quote = "0.6.3"
+proc-macro2 = "0.4.21"
+quote = "0.6.10"
 syn = "0.15.0"
 
 [features]

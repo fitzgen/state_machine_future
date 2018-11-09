@@ -10,7 +10,7 @@ license = "Apache-2.0/MIT"
 name = "state_machine_future"
 readme = "./README.md"
 repository = "https://github.com/fitzgen/state_machine_future"
-version = "0.1.8"
+version = "0.2.0"
 
 [badges.travis-ci]
 repository = "fitzgen/state_machine_future"
@@ -21,7 +21,7 @@ rent_to_own = "0.1.0"
 
 [dependencies.derive_state_machine_future]
 path = "./derive_state_machine_future/"
-version = "=0.1.8"
+version = "=0.2.0"
 
 [features]
 # For debugging purposes, print the generated code to stdout during
