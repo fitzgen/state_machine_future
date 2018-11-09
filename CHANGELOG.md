@@ -28,6 +28,26 @@ Released YYYY/MM/DD
 
 --------------------------------------------------------------------------------
 
+# 0.2.0
+
+Released 2018/11/10
+
+## Added
+
+* Add `Context` functionality. Thanks [@thomaseizinger][]. [#27][]
+* State machine can be constructed in any state with `start_in`. Thanks [@thomaseizinger][]. [#31][]
+* Make generated state enum inherent visibility. Thanks [@thomaseizinger][]. [#30][]
+
+## Changed
+
+* Derived traits are now only implemented for the state enum. Thanks [@thomaseizinger][]. [#27][]
+
+## Fixed
+
+* Do not generate trait methods with anonymous parameters. [#34][]
+
+--------------------------------------------------------------------------------
+
 # 0.1.8
 
 Released 2018/10/21
