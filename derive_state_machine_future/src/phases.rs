@@ -750,7 +750,6 @@ pub struct ReadyForCodegen {
     pub error: usize,
     pub states_enum: Rc<Ident>,
     pub poll_trait: Rc<Ident>,
-    pub futures_crate: Rc<Ident>,
     pub smf_crate: Rc<Ident>,
 }
 
@@ -768,7 +767,6 @@ pub struct CodegenStateExtra {
     pub derive: Rc<darling::util::IdentList>,
     pub poll_trait: Rc<Ident>,
     pub poll_method: Ident,
-    pub futures_crate: Rc<Ident>,
     pub smf_crate: Rc<Ident>,
     pub generics: Rc<syn::Generics>,
     pub after_state_generics: Rc<syn::Generics>,
@@ -816,11 +814,6 @@ impl Pass for ReadyForCodegen {
             poll_trait += &machine_name;
             let poll_trait = Rc::new(Ident::new(&poll_trait, Span::call_site()));
 
-            let mut futures_crate = String::from("__smf_");
-            futures_crate += machine_name.clone().to_snake_case().as_str();
-            futures_crate += "_futures";
-            let futures_crate = Rc::new(Ident::new(&futures_crate, Span::call_site()));
-
             let mut smf_crate = String::from("__smf_");
             smf_crate += machine_name.clone().to_snake_case().as_str();
             smf_crate += "_state_machine_future";
@@ -840,7 +833,6 @@ impl Pass for ReadyForCodegen {
                         let derive = derive.clone();
                         let states_enum = states_enum.clone();
                         let poll_trait = poll_trait.clone();
-                        let futures_crate = futures_crate.clone();
                         let smf_crate = smf_crate.clone();
 
                         let ident_name = state.ident.to_string();
@@ -863,7 +855,6 @@ impl Pass for ReadyForCodegen {
                             derive,
                             poll_trait,
                             poll_method,
-                            futures_crate,
                             smf_crate,
                             generics,
                             after_state_generics,
@@ -880,7 +871,6 @@ impl Pass for ReadyForCodegen {
                     error,
                     states_enum,
                     poll_trait,
-                    futures_crate,
                     smf_crate,
                 },
                 states,
