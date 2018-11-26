@@ -143,7 +143,6 @@ impl ToTokens for StateMachine<phases::ReadyForCodegen> {
             state_machine_name
         ));
 
-        let futures_crate = &*self.extra.futures_crate;
         let smf_crate = &*self.extra.smf_crate;
 
         let mut quiet = "__smf_quiet_warnings_for_".to_string();
@@ -239,14 +238,13 @@ impl ToTokens for StateMachine<phases::ReadyForCodegen> {
             Some(_) => quote!{
                 let context = match self.context.take() {
                     Some(context) => context,
-                    None => return Ok(#futures_crate::Async::NotReady),
+                    None => return Ok(#smf_crate::export::Async::NotReady),
                 };
             },
             None => quote!{},
         };
 
         tokens.append_all(quote! {
-            extern crate futures as #futures_crate;
             extern crate state_machine_future as #smf_crate;
 
             #( #states )*
@@ -264,17 +262,17 @@ impl ToTokens for StateMachine<phases::ReadyForCodegen> {
                 #context_field
             }
 
-            impl #impl_generics #futures_crate::Future
+            impl #impl_generics #smf_crate::export::Future
                 for #state_machine_ident #ty_generics #where_clause {
                 type Item = #future_item;
                 type Error = #future_error;
 
                 #[allow(unreachable_code)]
-                fn poll(&mut self) -> #futures_crate::Poll<Self::Item, Self::Error> {
+                fn poll(&mut self) -> #smf_crate::export::Poll<Self::Item, Self::Error> {
                     loop {
                         let state = match self.current_state.take() {
                             Some(state) => state,
-                            None => return Ok(#futures_crate::Async::NotReady),
+                            None => return Ok(#smf_crate::export::Async::NotReady),
                         };
                         #extract_context
                         self.current_state = match state {
@@ -390,13 +388,12 @@ impl State<phases::ReadyForCodegen> {
         let var = to_var(&ident_string);
         let states_enum = &*self.extra.states_enum;
         let poll_trait = &*self.extra.poll_trait;
-        let futures_crate = &*self.extra.futures_crate;
         let smf_crate = &*self.extra.smf_crate;
 
         if self.ready {
             return quote! {
                 #states_enum::#ident(#ident(#var)) => {
-                    return Ok(#futures_crate::Async::Ready(#var));
+                    return Ok(#smf_crate::export::Async::Ready(#var));
                 }
             };
         }
@@ -419,7 +416,7 @@ impl State<phases::ReadyForCodegen> {
         let ready = self.transitions.iter().map(|t| {
             let t_var = to_var(t.to_string());
             quote! {
-                Ok(#futures_crate::Async::Ready(#after::#t(#t_var))) => {
+                Ok(#smf_crate::export::Async::Ready(#after::#t(#t_var))) => {
                     Some(#states_enum::#t(#t_var))
                 }
             }
@@ -457,9 +454,9 @@ impl State<phases::ReadyForCodegen> {
                     Err(e) => {
                         Some(#states_enum::#error_ident(#error_ident(e)))
                     }
-                    Ok(#futures_crate::Async::NotReady) => {
+                    Ok(#smf_crate::export::Async::NotReady) => {
                         self.current_state = #var.map(#states_enum::#ident);
-                        return Ok(#futures_crate::Async::NotReady);
+                        return Ok(#smf_crate::export::Async::NotReady);
                     }
                     #( #ready )*
                 }
@@ -496,7 +493,6 @@ impl State<phases::ReadyForCodegen> {
         let ty_generics = self.extra.generics.split_for_impl().1;
         let (_, after_ty_generics, _) = self.extra.after_state_generics.split_for_impl();
         let error_type = &*self.extra.error_type;
-        let futures_crate = &*self.extra.futures_crate;
         let smf_crate = &*self.extra.smf_crate;
 
         let context_param = match context {
@@ -511,7 +507,7 @@ impl State<phases::ReadyForCodegen> {
             fn #poll_method<'smf_poll_state, 'smf_poll_context>(
                 _: &'smf_poll_state mut #smf_crate::RentToOwn<'smf_poll_state, #me #ty_generics>
                 #context_param
-            ) -> #futures_crate::Poll<#after #after_ty_generics, #error_type>;
+            ) -> #smf_crate::export::Poll<#after #after_ty_generics, #error_type>;
         }
     }
 }

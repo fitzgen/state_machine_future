@@ -575,6 +575,12 @@ mod compile_fail_tests;
 #[macro_use]
 mod transition;
 
+// Helpers used by generated code. Not public API.
+#[doc(hidden)]
+pub mod export {
+    pub use futures::{Async, Future, Poll};
+}
+
 /// Re-export of `rent_to_own::RentToOwn`.
 pub type RentToOwn<'a, T> = rent_to_own::RentToOwn<'a, T>;
 
