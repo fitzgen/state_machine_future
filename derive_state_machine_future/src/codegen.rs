@@ -256,13 +256,11 @@ impl ToTokens for StateMachine<phases::ReadyForCodegen> {
                     let context = match self.context.take() {
                         Some(context) => context,
                         None => {
-                            if let #states_enum::#ready_ident(#ready_ident(#ready_var)) = state {
-                                return Ok(#smf_crate::export::Async::Ready(#ready_var))
-                            };
-                            if let #states_enum::#error_ident(#error_ident(#error_var)) = state {
-                                return Err(#error_var);
-                            };
-                            return Ok(#smf_crate::export::Async::NotReady)
+                            return match state {
+                                #states_enum::#ready_ident(#ready_ident(#ready_var)) => Ok(#smf_crate::export::Async::Ready(#ready_var)),
+                                #states_enum::#error_ident(#error_ident(#error_var)) => Err(#error_var),
+                                _ => Ok(#smf_crate::export::Async::NotReady)
+                            }
                         }
                     };
                 },
