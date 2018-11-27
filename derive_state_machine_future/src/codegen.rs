@@ -75,11 +75,13 @@ impl ToTokens for StateMachine<phases::ReadyForCodegen> {
         let start_state_ident = &start.ident;
 
         let ready = &states[self.extra.ready];
-        let ready_state_ident = &ready.ident;
-        let ready_var = to_var(&ready_state_ident.to_string());
+        let ready_ident = &ready.ident;
+        let ready_var = to_var(&ready_ident.to_string());
         let future_item = &ready.fields.fields[0];
 
         let error = &states[self.extra.error];
+        let error_ident = &error.ident;
+        let error_var = to_var(&error_ident.to_string());
         let future_error = &error.fields.fields[0];
 
         let state_machine_attrs = &self.attrs;
@@ -245,7 +247,7 @@ impl ToTokens for StateMachine<phases::ReadyForCodegen> {
                     let context = match self.context.take() {
                         Some(context) => context,
                         None => {
-                            let #states_enum::#ready_state_ident(#ready_state_ident(#ready_var)) = state;
+                            let #states_enum::#ready_ident(#ready_ident(#ready_var)) = state;
                             return Ok(#smf_crate::export::Async::Ready(#ready_var))
                         }
                     };
@@ -254,8 +256,11 @@ impl ToTokens for StateMachine<phases::ReadyForCodegen> {
                     let context = match self.context.take() {
                         Some(context) => context,
                         None => {
-                            if let #states_enum::#ready_state_ident(#ready_state_ident(#ready_var)) = state {
+                            if let #states_enum::#ready_ident(#ready_ident(#ready_var)) = state {
                                 return Ok(#smf_crate::export::Async::Ready(#ready_var))
+                            };
+                            if let #states_enum::#error_ident(#error_ident(#error_var)) = state {
+                                return Err(#error_var);
                             };
                             return Ok(#smf_crate::export::Async::NotReady)
                         }
