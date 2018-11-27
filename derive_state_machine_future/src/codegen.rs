@@ -241,8 +241,7 @@ impl ToTokens for StateMachine<phases::ReadyForCodegen> {
 
         let extract_context = match self.context {
             Some(_) => match total_states {
-                // If there is only 1 state it is irrefutable that we are
-                // in the ready state.
+                // If there is only 1 state it is irrefutable that we are in the ready state.
                 1 => quote!{
                     let context = match self.context.take() {
                         Some(context) => context,
