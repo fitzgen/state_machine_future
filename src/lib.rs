@@ -310,7 +310,9 @@ fn main() {
 
 Same as for the state argument, the context can be taken through the `RentToOwn` type!
 However, be aware that once you take the context, the state machine will **always** return
-`Async::NotReady` **without** invoking the `poll_` methods anymore.
+`Async::NotReady` **without** invoking the `poll_` methods anymore. The one exception to
+this is when the state machine is in a ready or error state, where it will resolve normally
+when polled if the context has been taken.
 
 That's it!
 

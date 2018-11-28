@@ -48,6 +48,7 @@ impl ToTokens for StateMachine<phases::ReadyForCodegen> {
         let vis = &self.vis;
         let (impl_generics, ty_generics, where_clause) = self.generics.split_for_impl();
         let states = self.states();
+        let total_states = states.len();
 
         let derive = if self.derive.is_empty() {
             quote!{}
@@ -74,9 +75,13 @@ impl ToTokens for StateMachine<phases::ReadyForCodegen> {
         let start_state_ident = &start.ident;
 
         let ready = &states[self.extra.ready];
+        let ready_ident = &ready.ident;
+        let ready_var = to_var(&ready_ident.to_string());
         let future_item = &ready.fields.fields[0];
 
         let error = &states[self.extra.error];
+        let error_ident = &error.ident;
+        let error_var = to_var(&error_ident.to_string());
         let future_error = &error.fields.fields[0];
 
         let state_machine_attrs = &self.attrs;
@@ -235,11 +240,29 @@ impl ToTokens for StateMachine<phases::ReadyForCodegen> {
         };
 
         let extract_context = match self.context {
-            Some(_) => quote!{
-                let context = match self.context.take() {
-                    Some(context) => context,
-                    None => return Ok(#smf_crate::export::Async::NotReady),
-                };
+            Some(_) => match total_states {
+                // If there is only 1 state it is irrefutable that we are in the ready state.
+                1 => quote!{
+                    let context = match self.context.take() {
+                        Some(context) => context,
+                        None => {
+                            let #states_enum::#ready_ident(#ready_ident(#ready_var)) = state;
+                            return Ok(#smf_crate::export::Async::Ready(#ready_var))
+                        }
+                    };
+                },
+                _ => quote!{
+                    let context = match self.context.take() {
+                        Some(context) => context,
+                        None => {
+                            return match state {
+                                #states_enum::#ready_ident(#ready_ident(#ready_var)) => Ok(#smf_crate::export::Async::Ready(#ready_var)),
+                                #states_enum::#error_ident(#error_ident(#error_var)) => Err(#error_var),
+                                _ => Ok(#smf_crate::export::Async::NotReady)
+                            }
+                        }
+                    };
+                },
             },
             None => quote!{},
         };
