@@ -7,7 +7,11 @@ use syn;
 /// A description of a state machine: its various states, which is the start
 /// state, ready state, and error state.
 #[derive(Debug, FromDeriveInput)]
-#[darling(attributes(state_machine_future), supports(enum_any), forward_attrs(allow, cfg))]
+#[darling(
+    attributes(state_machine_future),
+    supports(enum_any),
+    forward_attrs(allow, cfg)
+)]
 pub struct StateMachine<P: phases::Phase> {
     pub ident: syn::Ident,
     pub vis: syn::Visibility,
@@ -30,8 +34,10 @@ pub struct StateMachine<P: phases::Phase> {
 
 /// In individual state in a state machine.
 #[derive(Debug, FromVariant)]
-#[darling(attributes(state_machine_future, transitions, start, ready, error),
-          forward_attrs(allow, doc, cfg))]
+#[darling(
+    attributes(state_machine_future, transitions, start, ready, error),
+    forward_attrs(allow, doc, cfg)
+)]
 pub struct State<P: phases::Phase> {
     pub ident: syn::Ident,
     pub attrs: Vec<syn::Attribute>,
@@ -67,8 +73,11 @@ where
     pub fn and_then<F, Q>(self, mut f: F) -> StateMachine<Q>
     where
         Q: phases::Phase,
-        F: FnMut(StateMachine<phases::NoPhase>, P::StateMachineExtra, Vec<State<P>>)
-            -> StateMachine<Q>,
+        F: FnMut(
+            StateMachine<phases::NoPhase>,
+            P::StateMachineExtra,
+            Vec<State<P>>,
+        ) -> StateMachine<Q>,
     {
         let (state_machine, extra, states) = self.split();
         f(state_machine, extra, states)

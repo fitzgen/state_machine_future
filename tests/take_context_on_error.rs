@@ -8,8 +8,7 @@ use futures::Future;
 use futures::Poll;
 use state_machine_future::RentToOwn;
 
-pub struct Context {
-}
+pub struct Context {}
 
 #[derive(StateMachineFuture)]
 #[state_machine_future(context = "Context")]
@@ -37,7 +36,6 @@ impl PollWithContext for WithContext {
 
 #[test]
 fn given_sm_with_context_can_take_context_on_error() {
-
     let context = Context {};
 
     let mut machine = WithContext::start(context);
