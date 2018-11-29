@@ -11,9 +11,13 @@ fn futures() {}
 fn state_machine_future() {}
 
 #[allow(unused_macros)]
-macro_rules! futures { () => {} }
+macro_rules! futures {
+    () => {};
+}
 #[allow(unused_macros)]
-macro_rules! state_machine_future { () => {} }
+macro_rules! state_machine_future {
+    () => {};
+}
 
 #[derive(StateMachineFuture)]
 pub enum Fsm {

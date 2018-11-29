@@ -21,4 +21,3 @@ fn check_debug<D: Debug>(_: D) {}
 fn state_derived_debug() {
     check_debug(OnlyState(()));
 }
-

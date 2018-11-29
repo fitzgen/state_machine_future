@@ -41,7 +41,6 @@ impl PollWithContext for WithContext {
 
 #[test]
 fn given_sm_with_context_can_take_context_value_on_ready() {
-
     let context = Context {
         value: String::from("foo"),
     };

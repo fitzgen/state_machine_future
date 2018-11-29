@@ -51,7 +51,7 @@ impl ToTokens for StateMachine<phases::ReadyForCodegen> {
         let total_states = states.len();
 
         let derive = if self.derive.is_empty() {
-            quote!{}
+            quote! {}
         } else {
             let derive = &*self.derive;
             quote! {
@@ -154,7 +154,8 @@ impl ToTokens for StateMachine<phases::ReadyForCodegen> {
         quiet += &state_machine_name.to_snake_case();
         let quiet = Ident::new(&quiet, Span::call_site());
 
-        let quiet_constructions: Vec<_> = self.states()
+        let quiet_constructions: Vec<_> = self
+            .states()
             .iter()
             .map(|s| {
                 let s_ident = &s.ident;
@@ -209,40 +210,40 @@ impl ToTokens for StateMachine<phases::ReadyForCodegen> {
         let has_no_start_parameters = start_params.len() == 0;
 
         let context_field = match self.context {
-            Some(ref ident) => quote!{
+            Some(ref ident) => quote! {
                 , context: Option<#ident #ty_generics>
             },
-            None => quote!{},
+            None => quote! {},
         };
 
         let context_start_arg_decl = match self.context {
-            Some(ref ident) if has_no_start_parameters => quote!{
+            Some(ref ident) if has_no_start_parameters => quote! {
                 context: #ident #ty_generics
             },
-            Some(ref ident) => quote!{
+            Some(ref ident) => quote! {
                 , context: #ident #ty_generics
             },
-            None => quote!{},
+            None => quote! {},
         };
 
         let context_start_in_arg_decl = match self.context {
-            Some(ref ident) => quote!{
+            Some(ref ident) => quote! {
                 , context: #ident #ty_generics
             },
-            None => quote!{},
+            None => quote! {},
         };
 
         let context_start_arg = match self.context {
-            Some(_) => quote!{
+            Some(_) => quote! {
                 , context: Some(context)
             },
-            None => quote!{},
+            None => quote! {},
         };
 
         let extract_context = match self.context {
             Some(_) => match total_states {
                 // If there is only 1 state it is irrefutable that we are in the ready state.
-                1 => quote!{
+                1 => quote! {
                     let context = match self.context.take() {
                         Some(context) => context,
                         None => {
@@ -251,7 +252,7 @@ impl ToTokens for StateMachine<phases::ReadyForCodegen> {
                         }
                     };
                 },
-                _ => quote!{
+                _ => quote! {
                     let context = match self.context.take() {
                         Some(context) => context,
                         None => {
@@ -264,7 +265,7 @@ impl ToTokens for StateMachine<phases::ReadyForCodegen> {
                     };
                 },
             },
-            None => quote!{},
+            None => quote! {},
         };
 
         tokens.append_all(quote! {
@@ -405,7 +406,11 @@ impl ToTokens for StateMachine<phases::ReadyForCodegen> {
 }
 
 impl State<phases::ReadyForCodegen> {
-    fn future_poll_match_arm(&self, ty_generics: &syn::TypeGenerics, context: Option<&syn::Ident>) -> proc_macro2::TokenStream {
+    fn future_poll_match_arm(
+        &self,
+        ty_generics: &syn::TypeGenerics,
+        context: Option<&syn::Ident>,
+    ) -> proc_macro2::TokenStream {
         let ident = &self.ident;
         let ident_string = ident.to_string();
         let var = to_var(&ident_string);
@@ -425,7 +430,7 @@ impl State<phases::ReadyForCodegen> {
         let error_var = to_var(error_ident.to_string());
 
         if self.error {
-            return quote!{
+            return quote! {
                 #states_enum::#error_ident(#error_ident(#error_var)) => {
                     return Err(#error_var);
                 }
@@ -499,14 +504,18 @@ impl State<phases::ReadyForCodegen> {
             self.ident.to_string(),
             self.extra.after,
             {
-                let mut t = quote!{};
+                let mut t = quote! {};
                 self.extra.error_type.to_tokens(&mut t);
                 t.to_string()
             },
         ))
     }
 
-    fn poll_trait_method(&self, sm_ty_generics: &syn::TypeGenerics, context: Option<&syn::Ident>) -> proc_macro2::TokenStream {
+    fn poll_trait_method(
+        &self,
+        sm_ty_generics: &syn::TypeGenerics,
+        context: Option<&syn::Ident>,
+    ) -> proc_macro2::TokenStream {
         assert!(!self.ready && !self.error);
 
         let poll_method = &self.extra.poll_method;
@@ -522,7 +531,7 @@ impl State<phases::ReadyForCodegen> {
             Some(ident) => quote! {
                 , _: &'smf_poll_context mut #smf_crate::RentToOwn<'smf_poll_context, #ident #sm_ty_generics>
             },
-            None => quote!{},
+            None => quote! {},
         };
 
         quote! {
@@ -546,7 +555,7 @@ impl ToTokens for State<phases::ReadyForCodegen> {
             self.extra.after_state_generics.split_for_impl();
 
         let derive = if self.extra.derive.is_empty() {
-            quote!{}
+            quote! {}
         } else {
             let derive = &**self.extra.derive;
             quote! {
@@ -554,12 +563,16 @@ impl ToTokens for State<phases::ReadyForCodegen> {
             }
         };
 
-        let fields: Vec<_> = self.fields
+        let fields: Vec<_> = self
+            .fields
             .fields
             .iter()
             .map(|f| {
                 let mut f = f.clone();
-                f.vis = syn::VisPublic { pub_token: <Token![pub]>::default() }.into();
+                f.vis = syn::VisPublic {
+                    pub_token: <Token![pub]>::default(),
+                }
+                .into();
                 f
             })
             .collect();
@@ -590,7 +603,8 @@ impl ToTokens for State<phases::ReadyForCodegen> {
 
         let after_ident = &self.extra.after;
 
-        let after_variants: Vec<_> = self.extra
+        let after_variants: Vec<_> = self
+            .extra
             .transition_state_generics
             .iter()
             .map(|(s, g)| {
@@ -606,7 +620,8 @@ impl ToTokens for State<phases::ReadyForCodegen> {
             })
             .collect();
 
-        let after_froms: Vec<_> = self.extra
+        let after_froms: Vec<_> = self
+            .extra
             .transition_state_generics
             .iter()
             .map(|(s, g)| {

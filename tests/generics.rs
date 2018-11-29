@@ -10,8 +10,8 @@ extern crate state_machine_future;
 use futures::{Future, Poll};
 use state_machine_future::RentToOwn;
 use std::fmt::Debug;
-use std::marker::PhantomData;
 use std::io;
+use std::marker::PhantomData;
 
 pub trait ComplexTrait<'a, T> {
     fn data(&self) -> &'a T;

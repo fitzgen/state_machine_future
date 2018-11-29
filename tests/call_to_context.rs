@@ -46,7 +46,6 @@ impl<T: Clone + 'static> PollWithContext<T> for WithContext<T> {
         _: &'s mut RentToOwn<'s, Start>,
         context: &'c mut RentToOwn<'c, Context<T>>,
     ) -> Poll<AfterStart<T>, ()> {
-
         let value = try_ready!(context.load_from_external_source().poll());
 
         transition!(Ready(value))
@@ -55,12 +54,14 @@ impl<T: Clone + 'static> PollWithContext<T> for WithContext<T> {
 
 #[test]
 fn can_call_to_context() {
-
     let source = ExternalSource {
         value: String::from("foo"),
     };
 
-    let context = Context { external_source: source, lazy_future: None };
+    let context = Context {
+        external_source: source,
+        lazy_future: None,
+    };
 
     let mut machine = WithContext::start((), context);
 
