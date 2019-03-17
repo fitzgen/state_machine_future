@@ -241,6 +241,8 @@ without having to explicitly include it in every one.
 
 The context can be specified through the `context` argument of the `state_machine_future` attribute.
 This will add parameters to the `start` method as well as to each `poll_*` method of the trait.
+Note that if the context has type parameters, those type parameters must be declared in the
+context argument, along with any associated bounds.
 
 ```
 #[macro_use]
@@ -250,8 +252,8 @@ extern crate futures;
 use futures::*;
 use state_machine_future::*;
 
-struct MyContext {
-
+struct MyContext<T> where T: Clone {
+    data: T,
 }
 
 struct MyItem {
@@ -263,7 +265,7 @@ enum MyError {
 }
 
 #[derive(StateMachineFuture)]
-#[state_machine_future(context = "MyContext")]
+#[state_machine_future(context = "MyContext<T: Clone>")]
 enum MyStateMachine {
     #[state_machine_future(start, transitions(Intermediate))]
     Start,
@@ -279,9 +281,9 @@ enum MyStateMachine {
 }
 
 impl PollMyStateMachine for MyStateMachine {
-    fn poll_start<'s, 'c>(
+    fn poll_start<'s, 'c, T: Clone>(
         start: &'s mut RentToOwn<'s, Start>,
-        context: &'c mut RentToOwn<'c, MyContext>
+        context: &'c mut RentToOwn<'c, MyContext<T>>
     ) -> Poll<AfterStart, MyError> {
 
         // The `context` instance passed into `start` is available here.
@@ -290,9 +292,9 @@ impl PollMyStateMachine for MyStateMachine {
         unimplemented!()
     }
 
-    fn poll_intermediate<'s, 'c>(
+    fn poll_intermediate<'s, 'c, T: Clone>(
         intermediate: &'s mut RentToOwn<'s, Intermediate>,
-        context: &'c mut RentToOwn<'c, MyContext>
+        context: &'c mut RentToOwn<'c, MyContext<T>>
     ) -> Poll<AfterIntermediate, MyError> {
 
         // The `context` is available here as well.
@@ -304,7 +306,9 @@ impl PollMyStateMachine for MyStateMachine {
 }
 
 fn main() {
-    let _ = MyStateMachine::start(MyContext { });
+    let _ = MyStateMachine::start(MyContext {
+        data: "foo",
+    });
 }
 ```
 
@@ -588,6 +592,9 @@ pub type RentToOwn<'a, T> = rent_to_own::RentToOwn<'a, T>;
 
 /// A trait that links an `enum` with `#[derive(StateMachineFuture)]` to its
 /// generated type that implements `Future`.
+///
+/// Note that this trait is not generated for state machines whose context has
+/// a type parameter that does not appear in the state machine itself.
 pub trait StateMachineFuture {
     /// The generated `Future` type for this state machine.
     type Future: futures::Future;

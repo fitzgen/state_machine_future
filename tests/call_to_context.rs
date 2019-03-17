@@ -29,7 +29,7 @@ impl<T: Clone + 'static> Context<T> {
 }
 
 #[derive(StateMachineFuture)]
-#[state_machine_future(context = "Context")]
+#[state_machine_future(context = "Context<T>")]
 pub enum WithContext<T: Clone + 'static> {
     #[state_machine_future(start, transitions(Ready))]
     Start(()),

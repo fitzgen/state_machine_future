@@ -2,6 +2,8 @@
 
 use darling;
 use phases;
+use proc_macro2;
+use quote;
 use syn;
 
 /// A description of a state machine: its various states, which is the start
@@ -29,7 +31,7 @@ pub struct StateMachine<P: phases::Phase> {
     pub extra: P::StateMachineExtra,
 
     #[darling(default)]
-    pub context: Option<syn::Ident>,
+    pub context: Option<Context>,
 }
 
 /// In individual state in a state machine.
@@ -62,6 +64,37 @@ pub struct State<P: phases::Phase> {
     /// Any extra per-phase data.
     #[darling(default)]
     pub extra: P::StateExtra,
+}
+
+#[derive(Debug)]
+pub struct Context {
+    pub ident: syn::Ident,
+    pub generics: syn::Generics,
+}
+
+pub type GenericParams = syn::punctuated::Punctuated<syn::GenericParam, syn::token::Comma>;
+
+impl darling::FromMeta for Context {
+    fn from_string(value: &str) -> Result<Context, darling::Error> {
+        syn::parse_str(value)
+            .map_err(|e| darling::Error::custom(format!("unable to parse context: {}", e)))
+    }
+}
+
+impl syn::parse::Parse for Context {
+    fn parse(input: syn::parse::ParseStream) -> syn::Result<Context> {
+        Ok(Context {
+            ident: input.parse()?,
+            generics: input.parse()?,
+        })
+    }
+}
+
+impl quote::ToTokens for Context {
+    fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
+        self.ident.to_tokens(tokens);
+        self.generics.split_for_impl().1.to_tokens(tokens);
+    }
 }
 
 impl<P> StateMachine<P>

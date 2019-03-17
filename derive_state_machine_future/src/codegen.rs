@@ -6,7 +6,7 @@ use proc_macro2::{self, Ident, Span};
 use quote::{ToTokens, TokenStreamExt};
 use syn;
 
-use ast::{State, StateMachine};
+use ast::{Context, GenericParams, State, StateMachine};
 use phases;
 
 fn doc_string<S: AsRef<str>>(s: S) -> proc_macro2::TokenStream {
@@ -45,8 +45,29 @@ impl ToTokens for StateMachine<phases::ReadyForCodegen> {
             println!("StateMachine::to_tokens: self = {:#?}", self);
         }
 
-        let vis = &self.vis;
+        // Collect the type parameters that are only used by the context.
+        let ctx_params: GenericParams = match self.context {
+            Some(ref ctx) => {
+                use darling::usage::GenericsExt;
+                let mparams = &self.generics.declared_type_params();
+                ctx.generics.type_params()
+                    .filter(|t| !mparams.contains(&t.ident))
+                    .map(|t| syn::GenericParam::Type(t.clone()))
+                    .collect()
+            },
+            None => GenericParams::new(),
+        };
+
+        // Construct generics snippets for types that embed the context and
+        // for types that don't.
+        let mut ctx_generics = self.generics.clone();
+        for param in &ctx_params {
+            ctx_generics.params.push(param.clone());
+        }
+        let (ctx_impl_generics, ctx_ty_generics, ctx_where_clause) = ctx_generics.split_for_impl();
         let (impl_generics, ty_generics, where_clause) = self.generics.split_for_impl();
+
+        let vis = &self.vis;
         let states = self.states();
         let total_states = states.len();
 
@@ -130,6 +151,8 @@ impl ToTokens for StateMachine<phases::ReadyForCodegen> {
             }
         };
 
+        let smf_crate = &*self.extra.smf_crate;
+
         let poll_match_arms: Vec<_> = states
             .iter()
             .map(|state| state.future_poll_match_arm(&ty_generics, self.context.as_ref()))
@@ -139,16 +162,19 @@ impl ToTokens for StateMachine<phases::ReadyForCodegen> {
         let poll_trait_methods: Vec<_> = states
             .iter()
             .filter(|s| !s.ready && !s.error)
-            .map(|state| state.poll_trait_method(&ty_generics, self.context.as_ref()))
+            .map(|state| state.poll_trait_method(self.context.as_ref(), &ctx_params))
             .collect();
+        let poll_trait_extends = if ctx_params.len() == 0 {
+            quote! { : #smf_crate::StateMachineFuture }
+        } else {
+            quote! {}
+        };
 
         let start_doc = doc_string(format!(
             "Start executing the `{}` state machine. This constructing its `Future` \
              representation in its initial start state and returns it.",
             state_machine_name
         ));
-
-        let smf_crate = &*self.extra.smf_crate;
 
         let mut quiet = "__smf_quiet_warnings_for_".to_string();
         quiet += &state_machine_name.to_snake_case();
@@ -210,25 +236,25 @@ impl ToTokens for StateMachine<phases::ReadyForCodegen> {
         let has_no_start_parameters = start_params.len() == 0;
 
         let context_field = match self.context {
-            Some(ref ident) => quote! {
-                , context: Option<#ident #ty_generics>
+            Some(ref ctx) => quote! {
+                , context: Option<#ctx>
             },
             None => quote! {},
         };
 
         let context_start_arg_decl = match self.context {
-            Some(ref ident) if has_no_start_parameters => quote! {
-                context: #ident #ty_generics
+            Some(ref ctx) if has_no_start_parameters => quote! {
+                context: #ctx
             },
-            Some(ref ident) => quote! {
-                , context: #ident #ty_generics
+            Some(ref ctx) => quote! {
+                , context: #ctx
             },
             None => quote! {},
         };
 
         let context_start_in_arg_decl = match self.context {
-            Some(ref ident) => quote! {
-                , context: #ident #ty_generics
+            Some(ref ctx) => quote! {
+                , context: #ctx
             },
             None => quote! {},
         };
@@ -281,13 +307,13 @@ impl ToTokens for StateMachine<phases::ReadyForCodegen> {
 
             #( #state_machine_attrs )*
             #[must_use = "futures do nothing unless polled"]
-            #vis struct #state_machine_ident #impl_generics #where_clause {
+            #vis struct #state_machine_ident #ctx_impl_generics #ctx_where_clause {
                 current_state: Option<#states_enum #ty_generics>
                 #context_field
             }
 
-            impl #impl_generics #smf_crate::export::Future
-                for #state_machine_ident #ty_generics #where_clause {
+            impl #ctx_impl_generics #smf_crate::export::Future
+                for #state_machine_ident #ctx_ty_generics #ctx_where_clause {
                 type Item = #future_item;
                 type Error = #future_error;
 
@@ -306,14 +332,8 @@ impl ToTokens for StateMachine<phases::ReadyForCodegen> {
                 }
             }
 
-            impl #impl_generics #smf_crate::StateMachineFuture
-                for #ident #ty_generics #where_clause
-            {
-                type Future = #state_machine_ident #ty_generics;
-            }
-
             #vis trait #poll_trait #impl_generics
-                : #smf_crate::StateMachineFuture
+                #poll_trait_extends
                 #where_clause
             {
                 #( #poll_trait_methods )*
@@ -322,7 +342,7 @@ impl ToTokens for StateMachine<phases::ReadyForCodegen> {
             impl #impl_generics #ident #ty_generics #where_clause {
                 #start_doc
                 #[allow(dead_code)]
-                #vis fn start( #( #start_params ),* #context_start_arg_decl ) -> #state_machine_ident #ty_generics {
+                #vis fn start<#ctx_params>( #( #start_params ),* #context_start_arg_decl ) -> #state_machine_ident #ctx_ty_generics {
                     #state_machine_ident {
                         current_state: Some(
                             #states_enum::#start_state_ident(
@@ -333,7 +353,7 @@ impl ToTokens for StateMachine<phases::ReadyForCodegen> {
                     }
                 }
 
-                #vis fn start_in<STATE: Into<#states_enum #ty_generics>>( state: STATE #context_start_in_arg_decl ) -> #state_machine_ident #ty_generics {
+                #vis fn start_in<STATE: Into<#states_enum #ty_generics>, #ctx_params>( state: STATE #context_start_in_arg_decl ) -> #state_machine_ident #ctx_ty_generics {
                     #state_machine_ident {
                         current_state: Some(state.into())
                         #context_start_arg
@@ -351,6 +371,20 @@ impl ToTokens for StateMachine<phases::ReadyForCodegen> {
                 )*
             }
         });
+
+        // If the context has type parameters that are not shared with the
+        // state machine itself, it is not possible to implement the
+        // StateMachineFuture trait, since we can't have unbound type parameters
+        // in the trait implementation.
+        if ctx_params.len() == 0 {
+            tokens.append_all(quote! {
+                impl #ctx_impl_generics #smf_crate::StateMachineFuture
+                    for #ident #ty_generics #where_clause
+                {
+                    type Future = #state_machine_ident #ctx_ty_generics;
+                }
+            });
+        }
 
         let state_froms: Vec<_> = states
             .iter()
@@ -409,7 +443,7 @@ impl State<phases::ReadyForCodegen> {
     fn future_poll_match_arm(
         &self,
         ty_generics: &syn::TypeGenerics,
-        context: Option<&syn::Ident>,
+        context: Option<&Context>,
     ) -> proc_macro2::TokenStream {
         let ident = &self.ident;
         let ident_string = ident.to_string();
@@ -513,8 +547,8 @@ impl State<phases::ReadyForCodegen> {
 
     fn poll_trait_method(
         &self,
-        sm_ty_generics: &syn::TypeGenerics,
-        context: Option<&syn::Ident>,
+        context: Option<&Context>,
+        generic_params: &GenericParams,
     ) -> proc_macro2::TokenStream {
         assert!(!self.ready && !self.error);
 
@@ -528,15 +562,15 @@ impl State<phases::ReadyForCodegen> {
         let smf_crate = &*self.extra.smf_crate;
 
         let context_param = match context {
-            Some(ident) => quote! {
-                , _: &'smf_poll_context mut #smf_crate::RentToOwn<'smf_poll_context, #ident #sm_ty_generics>
+            Some(ctx) => quote! {
+                , _: &'smf_poll_context mut #smf_crate::RentToOwn<'smf_poll_context, #ctx>
             },
             None => quote! {},
         };
 
         quote! {
             #poll_method_doc
-            fn #poll_method<'smf_poll_state, 'smf_poll_context>(
+            fn #poll_method<'smf_poll_state, 'smf_poll_context, #generic_params>(
                 _: &'smf_poll_state mut #smf_crate::RentToOwn<'smf_poll_state, #me #ty_generics>
                 #context_param
             ) -> #smf_crate::export::Poll<#after #after_ty_generics, #error_type>;
