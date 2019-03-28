@@ -28,4 +28,4 @@ debug_code_generation = []
 
 [lib]
 path = "./src/lib.rs"
-proc_macro = true
+proc-macro = true
