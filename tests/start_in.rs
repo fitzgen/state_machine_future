@@ -5,7 +5,7 @@ extern crate futures;
 extern crate state_machine_future;
 
 use futures::Poll;
-use state_machine_future::{RentToOwn};
+use state_machine_future::RentToOwn;
 
 #[derive(StateMachineFuture)]
 pub enum Fsm {
@@ -29,7 +29,9 @@ pub enum Fsm {
 fn can_start_in_all_states() {
     Fsm::start_in(Begin);
     Fsm::start_in(Middle1 { number: 10 });
-    Fsm::start_in(Middle2 { string: String::from("Hello!") });
+    Fsm::start_in(Middle2 {
+        string: String::from("Hello!"),
+    });
     Fsm::start_in(End(()));
 }
 

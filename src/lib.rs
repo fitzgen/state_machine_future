@@ -310,7 +310,9 @@ fn main() {
 
 Same as for the state argument, the context can be taken through the `RentToOwn` type!
 However, be aware that once you take the context, the state machine will **always** return
-`Async::NotReady` **without** invoking the `poll_` methods anymore.
+`Async::NotReady` **without** invoking the `poll_` methods anymore. The one exception to
+this is when the state machine is in a ready or error state, where it will resolve normally
+when polled if the context has been taken.
 
 That's it!
 
@@ -574,6 +576,12 @@ pub use derive_state_machine_future::*;
 mod compile_fail_tests;
 #[macro_use]
 mod transition;
+
+// Helpers used by generated code. Not public API.
+#[doc(hidden)]
+pub mod export {
+    pub use futures::{Async, Future, Poll};
+}
 
 /// Re-export of `rent_to_own::RentToOwn`.
 pub type RentToOwn<'a, T> = rent_to_own::RentToOwn<'a, T>;

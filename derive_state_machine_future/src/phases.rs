@@ -8,8 +8,8 @@ use std::rc::Rc;
 
 use darling;
 use darling::usage::{
-    CollectLifetimes, CollectTypeParams,
-    GenericsExt, IdentRefSet, LifetimeRefSet, Purpose, UsesTypeParams,
+    CollectLifetimes, CollectTypeParams, GenericsExt, IdentRefSet, LifetimeRefSet, Purpose,
+    UsesTypeParams,
 };
 use heck::SnakeCase;
 use petgraph;
@@ -25,7 +25,7 @@ use ast::StateMachine;
 macro_rules! dummy_from_meta {
     ( $t:ty ) => {
         impl darling::FromMeta for $t {}
-    }
+    };
 }
 
 // Same as above.
@@ -36,7 +36,7 @@ macro_rules! dummy_default {
                 panic!("dummy implementation")
             }
         }
-    }
+    };
 }
 
 /// A phase represents a state in the pipeline, and the extra data we've
@@ -406,17 +406,21 @@ impl Pass for StateGenerics {
                 // E.g. for `'a: 'b + 'c` the hash map wil have:
                 // * `'a` as key;
                 // * `'a: 'b + 'c` as value.
-                let where_clause_lifetimes = mgenerics.where_clause.as_ref().map(|where_clause| {
-                    into_group_map(where_clause.predicates.iter().filter_map(|predicate| {
-                        match *predicate {
-                            syn::WherePredicate::Type(_) => None,
-                            syn::WherePredicate::Lifetime(ref lifetime_def) => {
-                                Some((&lifetime_def.lifetime, predicate))
-                            },
-                            syn::WherePredicate::Eq(_) => None,
-                        }
-                    }))
-                }).unwrap_or_else(HashMap::new);
+                let where_clause_lifetimes = mgenerics
+                    .where_clause
+                    .as_ref()
+                    .map(|where_clause| {
+                        into_group_map(where_clause.predicates.iter().filter_map(|predicate| {
+                            match *predicate {
+                                syn::WherePredicate::Type(_) => None,
+                                syn::WherePredicate::Lifetime(ref lifetime_def) => {
+                                    Some((&lifetime_def.lifetime, predicate))
+                                }
+                                syn::WherePredicate::Eq(_) => None,
+                            }
+                        }))
+                    })
+                    .unwrap_or_else(HashMap::new);
 
                 // Collect type parameter identifiers in where clauses with respective type and
                 // equality predicates.
@@ -428,24 +432,30 @@ impl Pass for StateGenerics {
                 // Or e.g. for `X = Bar` the hash map will have:
                 // * `X` as key;
                 // * `X = Bar` as value.
-                let where_clause_types = mgenerics.where_clause.as_ref().map(|where_clause| {
-                    let declared_type_params_ref = &declared_type_params;
-                    into_group_map_multikey(where_clause.predicates.iter().filter_map(|predicate| {
-                        match *predicate {
-                            syn::WherePredicate::Type(ref type_param) => {
-                                let idents = type_param.bounded_ty
-                                    .uses_type_params(&options, declared_type_params_ref);
-                                Some((idents, predicate))
+                let where_clause_types = mgenerics
+                    .where_clause
+                    .as_ref()
+                    .map(|where_clause| {
+                        let declared_type_params_ref = &declared_type_params;
+                        into_group_map_multikey(where_clause.predicates.iter().filter_map(
+                            |predicate| match *predicate {
+                                syn::WherePredicate::Type(ref type_param) => {
+                                    let idents = type_param
+                                        .bounded_ty
+                                        .uses_type_params(&options, declared_type_params_ref);
+                                    Some((idents, predicate))
+                                }
+                                syn::WherePredicate::Lifetime(_) => None,
+                                syn::WherePredicate::Eq(ref eq) => {
+                                    let idents = eq
+                                        .lhs_ty
+                                        .uses_type_params(&options, declared_type_params_ref);
+                                    Some((idents, predicate))
+                                }
                             },
-                            syn::WherePredicate::Lifetime(_) => None,
-                            syn::WherePredicate::Eq(ref eq) => {
-                                let idents = eq.lhs_ty
-                                    .uses_type_params(&options, declared_type_params_ref);
-                                Some((idents, predicate))
-                            },
-                        }
-                    }))
-                }).unwrap_or_else(HashMap::new);
+                        ))
+                    })
+                    .unwrap_or_else(HashMap::new);
 
                 states
                     .into_iter()
@@ -456,9 +466,13 @@ impl Pass for StateGenerics {
                         state.and_then(|state, ()| {
                             // Lifetimes and type parameter identifiers for processing in any
                             // current iteration.
-                            let mut current_lifetimes = state.fields.fields
+                            let mut current_lifetimes = state
+                                .fields
+                                .fields
                                 .collect_lifetimes(&options, &declared_lifetimes);
-                            let mut current_type_params = state.fields.fields
+                            let mut current_type_params = state
+                                .fields
+                                .fields
                                 .collect_type_params(&options, &declared_type_params);
 
                             // Lifetimes and type parameter identifiers we already processed.
@@ -500,31 +514,49 @@ impl Pass for StateGenerics {
                                 }
 
                                 // Collect lifetimes for the next_iteration.
-                                let new_lifetimes = current_lifetimes.iter().flat_map(|lifetime| {
-                                    new_elems_from_elem!(
-                                        lifetime, lifetime_defs, where_clause_lifetimes,
-                                        collect_lifetimes, declared_lifetimes,
-                                    )
-                                }).chain(current_type_params.iter().flat_map(|ident| {
-                                    new_elems_from_elem!(
-                                        ident, type_param_defs, where_clause_types,
-                                        collect_lifetimes, declared_lifetimes,
-                                    )
-                                })).filter(|lifetime| {
-                                    !state_lifetimes.contains(lifetime)
-                                        && !current_lifetimes.contains(lifetime)
-                                }).collect();
+                                let new_lifetimes = current_lifetimes
+                                    .iter()
+                                    .flat_map(|lifetime| {
+                                        new_elems_from_elem!(
+                                            lifetime,
+                                            lifetime_defs,
+                                            where_clause_lifetimes,
+                                            collect_lifetimes,
+                                            declared_lifetimes,
+                                        )
+                                    })
+                                    .chain(current_type_params.iter().flat_map(|ident| {
+                                        new_elems_from_elem!(
+                                            ident,
+                                            type_param_defs,
+                                            where_clause_types,
+                                            collect_lifetimes,
+                                            declared_lifetimes,
+                                        )
+                                    }))
+                                    .filter(|lifetime| {
+                                        !state_lifetimes.contains(lifetime)
+                                            && !current_lifetimes.contains(lifetime)
+                                    })
+                                    .collect();
 
                                 // Collect type parameter identifiers for the next iteration.
-                                let new_type_params = current_type_params.iter().flat_map(|ident| {
-                                    new_elems_from_elem!(
-                                        ident, type_param_defs, where_clause_types,
-                                        collect_type_params, declared_type_params,
-                                    )
-                                }).filter(|ident| {
-                                    !state_type_params.contains(ident)
-                                        && !current_type_params.contains(ident)
-                                }).collect();
+                                let new_type_params = current_type_params
+                                    .iter()
+                                    .flat_map(|ident| {
+                                        new_elems_from_elem!(
+                                            ident,
+                                            type_param_defs,
+                                            where_clause_types,
+                                            collect_type_params,
+                                            declared_type_params,
+                                        )
+                                    })
+                                    .filter(|ident| {
+                                        !state_type_params.contains(ident)
+                                            && !current_type_params.contains(ident)
+                                    })
+                                    .collect();
 
                                 // Prepare the loop state for the next iteration.
                                 state_lifetimes.extend(current_lifetimes);
@@ -566,18 +598,18 @@ impl Pass for StateGenerics {
                                 let where_preds_lifetimes = state_lifetimes
                                     .iter()
                                     .filter_map(|lifetime| {
-                                        where_clause_lifetimes.get(lifetime).map(|predicates| {
-                                            predicates.iter().map(|&p| p.clone())
-                                        })
+                                        where_clause_lifetimes
+                                            .get(lifetime)
+                                            .map(|predicates| predicates.iter().map(|&p| p.clone()))
                                     })
                                     .flat_map(|ps| ps);
 
                                 let where_preds_types = state_type_params
                                     .iter()
                                     .filter_map(|ident| {
-                                        where_clause_types.get(ident).map(|predicates| {
-                                            predicates.iter().map(|&p| p.clone())
-                                        })
+                                        where_clause_types
+                                            .get(ident)
+                                            .map(|predicates| predicates.iter().map(|&p| p.clone()))
                                     })
                                     .flat_map(|ps| ps);
 
@@ -674,7 +706,8 @@ impl Pass for AfterStateGenerics {
                                     })
                                     .cloned();
 
-                                type_params.map(syn::GenericParam::Type)
+                                type_params
+                                    .map(syn::GenericParam::Type)
                                     .chain(lifetimes.map(syn::GenericParam::Lifetime))
                                     .collect()
                             };
@@ -750,7 +783,6 @@ pub struct ReadyForCodegen {
     pub error: usize,
     pub states_enum: Rc<Ident>,
     pub poll_trait: Rc<Ident>,
-    pub futures_crate: Rc<Ident>,
     pub smf_crate: Rc<Ident>,
 }
 
@@ -768,7 +800,6 @@ pub struct CodegenStateExtra {
     pub derive: Rc<darling::util::IdentList>,
     pub poll_trait: Rc<Ident>,
     pub poll_method: Ident,
-    pub futures_crate: Rc<Ident>,
     pub smf_crate: Rc<Ident>,
     pub generics: Rc<syn::Generics>,
     pub after_state_generics: Rc<syn::Generics>,
@@ -816,11 +847,6 @@ impl Pass for ReadyForCodegen {
             poll_trait += &machine_name;
             let poll_trait = Rc::new(Ident::new(&poll_trait, Span::call_site()));
 
-            let mut futures_crate = String::from("__smf_");
-            futures_crate += machine_name.clone().to_snake_case().as_str();
-            futures_crate += "_futures";
-            let futures_crate = Rc::new(Ident::new(&futures_crate, Span::call_site()));
-
             let mut smf_crate = String::from("__smf_");
             smf_crate += machine_name.clone().to_snake_case().as_str();
             smf_crate += "_state_machine_future";
@@ -840,7 +866,6 @@ impl Pass for ReadyForCodegen {
                         let derive = derive.clone();
                         let states_enum = states_enum.clone();
                         let poll_trait = poll_trait.clone();
-                        let futures_crate = futures_crate.clone();
                         let smf_crate = smf_crate.clone();
 
                         let ident_name = state.ident.to_string();
@@ -863,7 +888,6 @@ impl Pass for ReadyForCodegen {
                             derive,
                             poll_trait,
                             poll_method,
-                            futures_crate,
                             smf_crate,
                             generics,
                             after_state_generics,
@@ -880,7 +904,6 @@ impl Pass for ReadyForCodegen {
                     error,
                     states_enum,
                     poll_trait,
-                    futures_crate,
                     smf_crate,
                 },
                 states,

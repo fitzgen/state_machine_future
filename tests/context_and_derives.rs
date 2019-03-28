@@ -5,9 +5,7 @@ extern crate state_machine_future;
 
 use std::fmt::Debug;
 
-pub struct Context {
-
-}
+pub struct Context {}
 
 #[derive(StateMachineFuture)]
 #[state_machine_future(context = "Context", derive(Debug))]
@@ -24,4 +22,3 @@ fn check_debug<D: Debug>(_: D) {}
 fn given_sm_with_context_should_add_derives_to_states() {
     check_debug(OnlyState(()));
 }
-

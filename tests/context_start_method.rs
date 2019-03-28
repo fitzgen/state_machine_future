@@ -7,8 +7,7 @@ extern crate state_machine_future;
 use futures::Poll;
 use state_machine_future::RentToOwn;
 
-pub struct Context {
-}
+pub struct Context {}
 
 #[derive(StateMachineFuture)]
 #[state_machine_future(context = "Context")]
@@ -34,7 +33,6 @@ impl PollWithContext for WithContext {
 
 #[test]
 fn given_sm_with_no_start_args_only_takes_context() {
-
     let context = Context {};
 
     let _ = WithContext::start(context);

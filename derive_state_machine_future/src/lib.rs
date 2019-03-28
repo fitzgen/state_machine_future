@@ -13,11 +13,9 @@ extern crate quote;
 #[macro_use]
 extern crate syn;
 
-
 mod ast;
 mod codegen;
 mod phases;
-
 
 use darling::FromDeriveInput;
 use proc_macro::TokenStream;

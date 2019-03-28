@@ -48,9 +48,10 @@ impl ToTokens for StateMachine<phases::ReadyForCodegen> {
         let vis = &self.vis;
         let (impl_generics, ty_generics, where_clause) = self.generics.split_for_impl();
         let states = self.states();
+        let total_states = states.len();
 
         let derive = if self.derive.is_empty() {
-            quote!{}
+            quote! {}
         } else {
             let derive = &*self.derive;
             quote! {
@@ -74,9 +75,13 @@ impl ToTokens for StateMachine<phases::ReadyForCodegen> {
         let start_state_ident = &start.ident;
 
         let ready = &states[self.extra.ready];
+        let ready_ident = &ready.ident;
+        let ready_var = to_var(&ready_ident.to_string());
         let future_item = &ready.fields.fields[0];
 
         let error = &states[self.extra.error];
+        let error_ident = &error.ident;
+        let error_var = to_var(&error_ident.to_string());
         let future_error = &error.fields.fields[0];
 
         let state_machine_attrs = &self.attrs;
@@ -143,14 +148,14 @@ impl ToTokens for StateMachine<phases::ReadyForCodegen> {
             state_machine_name
         ));
 
-        let futures_crate = &*self.extra.futures_crate;
         let smf_crate = &*self.extra.smf_crate;
 
         let mut quiet = "__smf_quiet_warnings_for_".to_string();
         quiet += &state_machine_name.to_snake_case();
         let quiet = Ident::new(&quiet, Span::call_site());
 
-        let quiet_constructions: Vec<_> = self.states()
+        let quiet_constructions: Vec<_> = self
+            .states()
             .iter()
             .map(|s| {
                 let s_ident = &s.ident;
@@ -205,48 +210,65 @@ impl ToTokens for StateMachine<phases::ReadyForCodegen> {
         let has_no_start_parameters = start_params.len() == 0;
 
         let context_field = match self.context {
-            Some(ref ident) => quote!{
+            Some(ref ident) => quote! {
                 , context: Option<#ident #ty_generics>
             },
-            None => quote!{},
+            None => quote! {},
         };
 
         let context_start_arg_decl = match self.context {
-            Some(ref ident) if has_no_start_parameters => quote!{
+            Some(ref ident) if has_no_start_parameters => quote! {
                 context: #ident #ty_generics
             },
-            Some(ref ident) => quote!{
+            Some(ref ident) => quote! {
                 , context: #ident #ty_generics
             },
-            None => quote!{},
+            None => quote! {},
         };
 
         let context_start_in_arg_decl = match self.context {
-            Some(ref ident) => quote!{
+            Some(ref ident) => quote! {
                 , context: #ident #ty_generics
             },
-            None => quote!{},
+            None => quote! {},
         };
 
         let context_start_arg = match self.context {
-            Some(_) => quote!{
+            Some(_) => quote! {
                 , context: Some(context)
             },
-            None => quote!{},
+            None => quote! {},
         };
 
         let extract_context = match self.context {
-            Some(_) => quote!{
-                let context = match self.context.take() {
-                    Some(context) => context,
-                    None => return Ok(#futures_crate::Async::NotReady),
-                };
+            Some(_) => match total_states {
+                // If there is only 1 state it is irrefutable that we are in the ready state.
+                1 => quote! {
+                    let context = match self.context.take() {
+                        Some(context) => context,
+                        None => {
+                            let #states_enum::#ready_ident(#ready_ident(#ready_var)) = state;
+                            return Ok(#smf_crate::export::Async::Ready(#ready_var))
+                        }
+                    };
+                },
+                _ => quote! {
+                    let context = match self.context.take() {
+                        Some(context) => context,
+                        None => {
+                            return match state {
+                                #states_enum::#ready_ident(#ready_ident(#ready_var)) => Ok(#smf_crate::export::Async::Ready(#ready_var)),
+                                #states_enum::#error_ident(#error_ident(#error_var)) => Err(#error_var),
+                                _ => Ok(#smf_crate::export::Async::NotReady)
+                            }
+                        }
+                    };
+                },
             },
-            None => quote!{},
+            None => quote! {},
         };
 
         tokens.append_all(quote! {
-            extern crate futures as #futures_crate;
             extern crate state_machine_future as #smf_crate;
 
             #( #states )*
@@ -264,17 +286,17 @@ impl ToTokens for StateMachine<phases::ReadyForCodegen> {
                 #context_field
             }
 
-            impl #impl_generics #futures_crate::Future
+            impl #impl_generics #smf_crate::export::Future
                 for #state_machine_ident #ty_generics #where_clause {
                 type Item = #future_item;
                 type Error = #future_error;
 
                 #[allow(unreachable_code)]
-                fn poll(&mut self) -> #futures_crate::Poll<Self::Item, Self::Error> {
+                fn poll(&mut self) -> #smf_crate::export::Poll<Self::Item, Self::Error> {
                     loop {
                         let state = match self.current_state.take() {
                             Some(state) => state,
-                            None => return Ok(#futures_crate::Async::NotReady),
+                            None => return Ok(#smf_crate::export::Async::NotReady),
                         };
                         #extract_context
                         self.current_state = match state {
@@ -384,19 +406,22 @@ impl ToTokens for StateMachine<phases::ReadyForCodegen> {
 }
 
 impl State<phases::ReadyForCodegen> {
-    fn future_poll_match_arm(&self, ty_generics: &syn::TypeGenerics, context: Option<&syn::Ident>) -> proc_macro2::TokenStream {
+    fn future_poll_match_arm(
+        &self,
+        ty_generics: &syn::TypeGenerics,
+        context: Option<&syn::Ident>,
+    ) -> proc_macro2::TokenStream {
         let ident = &self.ident;
         let ident_string = ident.to_string();
         let var = to_var(&ident_string);
         let states_enum = &*self.extra.states_enum;
         let poll_trait = &*self.extra.poll_trait;
-        let futures_crate = &*self.extra.futures_crate;
         let smf_crate = &*self.extra.smf_crate;
 
         if self.ready {
             return quote! {
                 #states_enum::#ident(#ident(#var)) => {
-                    return Ok(#futures_crate::Async::Ready(#var));
+                    return Ok(#smf_crate::export::Async::Ready(#var));
                 }
             };
         }
@@ -405,7 +430,7 @@ impl State<phases::ReadyForCodegen> {
         let error_var = to_var(error_ident.to_string());
 
         if self.error {
-            return quote!{
+            return quote! {
                 #states_enum::#error_ident(#error_ident(#error_var)) => {
                     return Err(#error_var);
                 }
@@ -419,7 +444,7 @@ impl State<phases::ReadyForCodegen> {
         let ready = self.transitions.iter().map(|t| {
             let t_var = to_var(t.to_string());
             quote! {
-                Ok(#futures_crate::Async::Ready(#after::#t(#t_var))) => {
+                Ok(#smf_crate::export::Async::Ready(#after::#t(#t_var))) => {
                     Some(#states_enum::#t(#t_var))
                 }
             }
@@ -457,9 +482,9 @@ impl State<phases::ReadyForCodegen> {
                     Err(e) => {
                         Some(#states_enum::#error_ident(#error_ident(e)))
                     }
-                    Ok(#futures_crate::Async::NotReady) => {
+                    Ok(#smf_crate::export::Async::NotReady) => {
                         self.current_state = #var.map(#states_enum::#ident);
-                        return Ok(#futures_crate::Async::NotReady);
+                        return Ok(#smf_crate::export::Async::NotReady);
                     }
                     #( #ready )*
                 }
@@ -479,14 +504,18 @@ impl State<phases::ReadyForCodegen> {
             self.ident.to_string(),
             self.extra.after,
             {
-                let mut t = quote!{};
+                let mut t = quote! {};
                 self.extra.error_type.to_tokens(&mut t);
                 t.to_string()
             },
         ))
     }
 
-    fn poll_trait_method(&self, sm_ty_generics: &syn::TypeGenerics, context: Option<&syn::Ident>) -> proc_macro2::TokenStream {
+    fn poll_trait_method(
+        &self,
+        sm_ty_generics: &syn::TypeGenerics,
+        context: Option<&syn::Ident>,
+    ) -> proc_macro2::TokenStream {
         assert!(!self.ready && !self.error);
 
         let poll_method = &self.extra.poll_method;
@@ -496,14 +525,13 @@ impl State<phases::ReadyForCodegen> {
         let ty_generics = self.extra.generics.split_for_impl().1;
         let (_, after_ty_generics, _) = self.extra.after_state_generics.split_for_impl();
         let error_type = &*self.extra.error_type;
-        let futures_crate = &*self.extra.futures_crate;
         let smf_crate = &*self.extra.smf_crate;
 
         let context_param = match context {
             Some(ident) => quote! {
                 , _: &'smf_poll_context mut #smf_crate::RentToOwn<'smf_poll_context, #ident #sm_ty_generics>
             },
-            None => quote!{},
+            None => quote! {},
         };
 
         quote! {
@@ -511,7 +539,7 @@ impl State<phases::ReadyForCodegen> {
             fn #poll_method<'smf_poll_state, 'smf_poll_context>(
                 _: &'smf_poll_state mut #smf_crate::RentToOwn<'smf_poll_state, #me #ty_generics>
                 #context_param
-            ) -> #futures_crate::Poll<#after #after_ty_generics, #error_type>;
+            ) -> #smf_crate::export::Poll<#after #after_ty_generics, #error_type>;
         }
     }
 }
@@ -527,7 +555,7 @@ impl ToTokens for State<phases::ReadyForCodegen> {
             self.extra.after_state_generics.split_for_impl();
 
         let derive = if self.extra.derive.is_empty() {
-            quote!{}
+            quote! {}
         } else {
             let derive = &**self.extra.derive;
             quote! {
@@ -535,12 +563,16 @@ impl ToTokens for State<phases::ReadyForCodegen> {
             }
         };
 
-        let fields: Vec<_> = self.fields
+        let fields: Vec<_> = self
+            .fields
             .fields
             .iter()
             .map(|f| {
                 let mut f = f.clone();
-                f.vis = syn::VisPublic { pub_token: <Token![pub]>::default() }.into();
+                f.vis = syn::VisPublic {
+                    pub_token: <Token![pub]>::default(),
+                }
+                .into();
                 f
             })
             .collect();
@@ -571,7 +603,8 @@ impl ToTokens for State<phases::ReadyForCodegen> {
 
         let after_ident = &self.extra.after;
 
-        let after_variants: Vec<_> = self.extra
+        let after_variants: Vec<_> = self
+            .extra
             .transition_state_generics
             .iter()
             .map(|(s, g)| {
@@ -587,7 +620,8 @@ impl ToTokens for State<phases::ReadyForCodegen> {
             })
             .collect();
 
-        let after_froms: Vec<_> = self.extra
+        let after_froms: Vec<_> = self
+            .extra
             .transition_state_generics
             .iter()
             .map(|(s, g)| {

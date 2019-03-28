@@ -24,7 +24,6 @@ pub enum Fsm {
     End(()),
 }
 
-
 impl PollFsm for Fsm {
     fn poll_begin<'a>(_: &'a mut RentToOwn<'a, Begin>) -> Poll<AfterBegin, ()> {
         unimplemented!()
@@ -39,9 +38,7 @@ impl PollFsm for Fsm {
     }
 }
 
-fn convert<S: Into<FsmStates>>(_state: S) {
-
-}
+fn convert<S: Into<FsmStates>>(_state: S) {}
 
 #[test]
 fn convert_states() {

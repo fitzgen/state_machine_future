@@ -1,9 +1,11 @@
-//! Test that we can access context type.
+//! Test that we can take context when transitioning to ready.
 
 extern crate futures;
 #[macro_use]
 extern crate state_machine_future;
 
+use futures::Async;
+use futures::Future;
 use futures::Poll;
 use state_machine_future::RentToOwn;
 
@@ -25,15 +27,19 @@ pub enum WithContext {
 impl PollWithContext for WithContext {
     fn poll_start<'s, 'c>(
         _: &'s mut RentToOwn<'s, Start>,
-        _: &'c mut RentToOwn<'c, Context>,
+        context: &'c mut RentToOwn<'c, Context>,
     ) -> Poll<AfterStart, ()> {
-        unimplemented!()
+        context.take();
+
+        transition!(Ready(()))
     }
 }
 
 #[test]
-fn given_sm_with_no_start_args_only_takes_context() {
+fn given_sm_with_context_can_take_context_on_ready() {
     let context = Context {};
 
-    let _ = WithContext::start_in(Ready(()), context);
+    let mut machine = WithContext::start(context);
+
+    assert_eq!(machine.poll(), Ok(Async::Ready(())));
 }
