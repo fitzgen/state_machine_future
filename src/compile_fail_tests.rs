@@ -626,3 +626,24 @@ mod reachable_state_without_path_to_ready_or_error {
     ```
      */
 }
+
+mod unparseable_context_type {
+    /*!
+    ```compile_fail
+    #[macro_use]
+    extern crate state_machine_future;
+    extern crate futures;
+    use futures::*;
+    use std::fmt::Debug;
+
+    #[derive(StateMachineFuture)]
+    #[state_machine_future(context = "this isn't rust syntax")]
+    pub enum Machine {
+        #[state_machine_future(start)]
+        #[state_machine_future(ready)]
+        #[state_machine_future(error)]
+        OnlyState(()),
+    }
+    ```
+     */
+}
