@@ -581,6 +581,7 @@ mod transition;
 #[doc(hidden)]
 pub mod export {
     pub use futures::{Async, Future, Poll};
+    pub use std::mem::replace;
 }
 
 /// Re-export of `rent_to_own::RentToOwn`.
@@ -591,4 +592,15 @@ pub type RentToOwn<'a, T> = rent_to_own::RentToOwn<'a, T>;
 pub trait StateMachineFuture {
     /// The generated `Future` type for this state machine.
     type Future: futures::Future;
+}
+
+/// Type returned by poll methods
+#[derive(Debug)]
+pub enum SMPoll<R, NR, E> {
+    /// The poll method is transtionning to another state
+    Ready(R),
+    /// The poll method is not ready yet
+    NotReady(NR),
+    /// An error happened
+    Error(E),
 }

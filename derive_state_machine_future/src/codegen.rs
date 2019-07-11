@@ -6,8 +6,8 @@ use proc_macro2::{self, Ident, Span};
 use quote::{ToTokens, TokenStreamExt};
 use syn;
 
-use ast::{State, StateMachine};
-use phases;
+use super::ast::{State, StateMachine};
+use super::phases;
 
 fn doc_string<S: AsRef<str>>(s: S) -> proc_macro2::TokenStream {
     let s = s.as_ref();
@@ -59,7 +59,7 @@ impl ToTokens for StateMachine<phases::ReadyForCodegen> {
             }
         };
 
-        let states_variants: Vec<_> = states
+        let mut states_variants: Vec<_> = states
             .iter()
             .map(|s| {
                 let ty_generics = s.extra.generics.split_for_impl().1;
@@ -70,6 +70,10 @@ impl ToTokens for StateMachine<phases::ReadyForCodegen> {
                 }
             })
             .collect();
+        states_variants.push(quote! {
+            Working__
+        });
+        let states_variants = states_variants;
 
         let start = &states[self.extra.start];
         let start_state_ident = &start.ident;
@@ -134,8 +138,15 @@ impl ToTokens for StateMachine<phases::ReadyForCodegen> {
             .iter()
             .map(|state| state.future_poll_match_arm(&ty_generics, self.context.as_ref()))
             .collect();
+        let mut error_msg = state_machine_name.clone();
+        error_msg.push_str(" future has been polled while already completed");
+        let working_match_arms = quote! {
+            #states_enum::Working__ => {
+                unreachable!(#error_msg);
+            }
+        };
 
-        let poll_trait = &*self.extra.poll_trait;
+        let future_trait = &*self.extra.future_trait;
         let poll_trait_methods: Vec<_> = states
             .iter()
             .filter(|s| !s.ready && !s.error)
@@ -270,6 +281,7 @@ impl ToTokens for StateMachine<phases::ReadyForCodegen> {
 
         tokens.append_all(quote! {
             extern crate state_machine_future as #smf_crate;
+            use #smf_crate::SMPoll;
 
             #( #states )*
 
@@ -282,7 +294,7 @@ impl ToTokens for StateMachine<phases::ReadyForCodegen> {
             #( #state_machine_attrs )*
             #[must_use = "futures do nothing unless polled"]
             #vis struct #state_machine_ident #impl_generics #where_clause {
-                current_state: Option<#states_enum #ty_generics>
+                current_state: #states_enum #ty_generics
                 #context_field
             }
 
@@ -294,13 +306,10 @@ impl ToTokens for StateMachine<phases::ReadyForCodegen> {
                 #[allow(unreachable_code)]
                 fn poll(&mut self) -> #smf_crate::export::Poll<Self::Item, Self::Error> {
                     loop {
-                        let state = match self.current_state.take() {
-                            Some(state) => state,
-                            None => return Ok(#smf_crate::export::Async::NotReady),
-                        };
-                        #extract_context
-                        self.current_state = match state {
+                        #extract_context // TODO(baloo): need to workout this
+                        match #smf_crate::export::replace(&mut self.current_state, #states_enum::Working__) {
                             #( #poll_match_arms )*
+                            #working_match_arms
                         };
                     }
                 }
@@ -312,7 +321,7 @@ impl ToTokens for StateMachine<phases::ReadyForCodegen> {
                 type Future = #state_machine_ident #ty_generics;
             }
 
-            #vis trait #poll_trait #impl_generics
+            #vis trait #future_trait #impl_generics
                 : #smf_crate::StateMachineFuture
                 #where_clause
             {
@@ -324,10 +333,8 @@ impl ToTokens for StateMachine<phases::ReadyForCodegen> {
                 #[allow(dead_code)]
                 #vis fn start( #( #start_params ),* #context_start_arg_decl ) -> #state_machine_ident #ty_generics {
                     #state_machine_ident {
-                        current_state: Some(
-                            #states_enum::#start_state_ident(
-                                #start_value
-                            )
+                        current_state: #states_enum::#start_state_ident(
+                            #start_value
                         )
                         #context_start_arg
                     }
@@ -335,7 +342,7 @@ impl ToTokens for StateMachine<phases::ReadyForCodegen> {
 
                 #vis fn start_in<STATE: Into<#states_enum #ty_generics>>( state: STATE #context_start_in_arg_decl ) -> #state_machine_ident #ty_generics {
                     #state_machine_ident {
-                        current_state: Some(state.into())
+                        current_state: state.into()
                         #context_start_arg
                     }
                 }
@@ -415,7 +422,7 @@ impl State<phases::ReadyForCodegen> {
         let ident_string = ident.to_string();
         let var = to_var(&ident_string);
         let states_enum = &*self.extra.states_enum;
-        let poll_trait = &*self.extra.poll_trait;
+        let future_trait = &*self.extra.future_trait;
         let smf_crate = &*self.extra.smf_crate;
 
         if self.ready {
@@ -444,8 +451,8 @@ impl State<phases::ReadyForCodegen> {
         let ready = self.transitions.iter().map(|t| {
             let t_var = to_var(t.to_string());
             quote! {
-                Ok(#smf_crate::export::Async::Ready(#after::#t(#t_var))) => {
-                    Some(#states_enum::#t(#t_var))
+                #smf_crate::SMPoll::Ready(#after::#t(#t_var)) => {
+                    #smf_crate::export::replace(&mut self.current_state, #states_enum::#t(#t_var));
                 }
             }
         });
@@ -457,7 +464,7 @@ impl State<phases::ReadyForCodegen> {
                         #smf_crate::RentToOwn::with(
                             context,
                             move |context| {
-                                <#description_ident #ty_generics as #poll_trait #ty_generics>::#poll_method(state, context)
+                                <#description_ident #ty_generics as #future_trait #ty_generics>::#poll_method(state, context)
                             }
                         );
 
@@ -467,23 +474,21 @@ impl State<phases::ReadyForCodegen> {
                 }
             },
             None => quote! {
-                <#description_ident #ty_generics as #poll_trait #ty_generics>::#poll_method
+                <#description_ident #ty_generics as #future_trait #ty_generics>::#poll_method
             },
         };
 
         quote! {
             #states_enum::#ident(#var) => {
-                let (#var, result) =
-                    #smf_crate::RentToOwn::with(
-                        #var,
-                        #poll_method_call
-                    );
-                match result {
-                    Err(e) => {
-                        Some(#states_enum::#error_ident(#error_ident(e)))
-                    }
-                    Ok(#smf_crate::export::Async::NotReady) => {
-                        self.current_state = #var.map(#states_enum::#ident);
+                let out = #poll_method_call(#var);
+                match out {
+                    #smf_crate::SMPoll::Error(e) => {
+                        // We replaced the state, poll will now loop and poll on
+                        // the new state
+                        #smf_crate::export::replace(&mut self.current_state, #states_enum::#error_ident(#error_ident(e)));
+                    },
+                    #smf_crate::SMPoll::NotReady(not_ready) => {
+                        #smf_crate::export::replace(&mut self.current_state, #states_enum::#ident(not_ready));
                         return Ok(#smf_crate::export::Async::NotReady);
                     }
                     #( #ready )*
@@ -493,6 +498,7 @@ impl State<phases::ReadyForCodegen> {
     }
 
     fn poll_doc_string(&self) -> proc_macro2::TokenStream {
+        // TODO(baloo): fix that
         doc_string(format!(
             "Poll the future when it is in the `{}` state and see if it is ready \
              to transition to a new state. If the future is ready to transition \
@@ -536,10 +542,10 @@ impl State<phases::ReadyForCodegen> {
 
         quote! {
             #poll_method_doc
-            fn #poll_method<'smf_poll_state, 'smf_poll_context>(
-                _: &'smf_poll_state mut #smf_crate::RentToOwn<'smf_poll_state, #me #ty_generics>
+            fn #poll_method(
+                _: #me #ty_generics
                 #context_param
-            ) -> #smf_crate::export::Poll<#after #after_ty_generics, #error_type>;
+            ) -> #smf_crate::SMPoll<#after #after_ty_generics, #me, #error_type>;
         }
     }
 }
@@ -653,3 +659,4 @@ impl ToTokens for State<phases::ReadyForCodegen> {
         });
     }
 }
+

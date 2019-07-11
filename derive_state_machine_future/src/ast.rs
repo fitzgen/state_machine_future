@@ -1,8 +1,8 @@
 //! AST types for state machines and their states.
 
 use darling;
-use phases;
 use syn;
+use super::phases;
 
 /// A description of a state machine: its various states, which is the start
 /// state, ready state, and error state.
@@ -187,3 +187,4 @@ impl State<phases::NoPhase> {
         }
     }
 }
+

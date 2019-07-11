@@ -17,7 +17,7 @@ use petgraph::algo::has_path_connecting;
 use proc_macro2::{Ident, Span};
 use syn;
 
-use ast::StateMachine;
+use super::ast::StateMachine;
 
 // Create a dummy `FromMeta` implementation for the given type. This is only
 // used because the way that `darling` emits bounds on generic items forces all
@@ -73,7 +73,7 @@ pub trait Pass: Phase {
     type FromPhase: Phase;
 
     /// The function to translate between these phases.
-    fn pass(StateMachine<Self::FromPhase>) -> StateMachine<Self>;
+    fn pass(sm: StateMachine<Self::FromPhase>) -> StateMachine<Self>;
 }
 
 /// The state machine AST has been parsed from the custom derive input.
@@ -782,7 +782,7 @@ pub struct ReadyForCodegen {
     pub ready: usize,
     pub error: usize,
     pub states_enum: Rc<Ident>,
-    pub poll_trait: Rc<Ident>,
+    pub future_trait: Rc<Ident>,
     pub smf_crate: Rc<Ident>,
 }
 
@@ -798,7 +798,7 @@ pub struct CodegenStateExtra {
     pub error_ident: Rc<syn::Ident>,
     pub after: Ident,
     pub derive: Rc<darling::util::IdentList>,
-    pub poll_trait: Rc<Ident>,
+    pub future_trait: Rc<Ident>,
     pub poll_method: Ident,
     pub smf_crate: Rc<Ident>,
     pub generics: Rc<syn::Generics>,
@@ -843,9 +843,9 @@ impl Pass for ReadyForCodegen {
             states_enum += "States";
             let states_enum = Rc::new(Ident::new(&states_enum, Span::call_site()));
 
-            let mut poll_trait = String::from("Poll");
-            poll_trait += &machine_name;
-            let poll_trait = Rc::new(Ident::new(&poll_trait, Span::call_site()));
+            let mut future_trait = String::from("Future");
+            future_trait += &machine_name;
+            let future_trait = Rc::new(Ident::new(&future_trait, Span::call_site()));
 
             let mut smf_crate = String::from("__smf_");
             smf_crate += machine_name.clone().to_snake_case().as_str();
@@ -865,7 +865,7 @@ impl Pass for ReadyForCodegen {
                         let transition_state_generics = extra.transition_state_generics.clone();
                         let derive = derive.clone();
                         let states_enum = states_enum.clone();
-                        let poll_trait = poll_trait.clone();
+                        let future_trait = future_trait.clone();
                         let smf_crate = smf_crate.clone();
 
                         let ident_name = state.ident.to_string();
@@ -886,7 +886,7 @@ impl Pass for ReadyForCodegen {
                             error_type,
                             after,
                             derive,
-                            poll_trait,
+                            future_trait,
                             poll_method,
                             smf_crate,
                             generics,
@@ -903,7 +903,7 @@ impl Pass for ReadyForCodegen {
                     ready,
                     error,
                     states_enum,
-                    poll_trait,
+                    future_trait,
                     smf_crate,
                 },
                 states,
