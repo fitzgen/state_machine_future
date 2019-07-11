@@ -594,13 +594,15 @@ pub trait StateMachineFuture {
     type Future: futures::Future;
 }
 
-/// Type returned by poll methods
+/// Async type similar to future's Async. The NotReady variant provides a type
+/// parameter to return object ownership to StateMachineFuture implementation
 #[derive(Debug)]
-pub enum SMPoll<R, NR, E> {
+pub enum SMAsync<R, NR> {
     /// The poll method is transtionning to another state
     Ready(R),
     /// The poll method is not ready yet
     NotReady(NR),
-    /// An error happened
-    Error(E),
 }
+
+/// Type returned by poll methods
+pub type SMPoll<R, NR, E> = Result<SMAsync<R, NR>, E>;

@@ -847,9 +847,7 @@ impl Pass for ReadyForCodegen {
             future_trait += &machine_name;
             let future_trait = Rc::new(Ident::new(&future_trait, Span::call_site()));
 
-            let mut smf_crate = String::from("__smf_");
-            smf_crate += machine_name.clone().to_snake_case().as_str();
-            smf_crate += "_state_machine_future";
+            let mut smf_crate = String::from("state_machine_future");
             let smf_crate = Rc::new(Ident::new(&smf_crate, Span::call_site()));
 
             let states = states

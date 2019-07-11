@@ -280,8 +280,8 @@ impl ToTokens for StateMachine<phases::ReadyForCodegen> {
         };
 
         tokens.append_all(quote! {
-            extern crate state_machine_future as #smf_crate;
             use #smf_crate::SMPoll;
+            use #smf_crate::SMAsync;
 
             #( #states )*
 
@@ -451,7 +451,7 @@ impl State<phases::ReadyForCodegen> {
         let ready = self.transitions.iter().map(|t| {
             let t_var = to_var(t.to_string());
             quote! {
-                #smf_crate::SMPoll::Ready(#after::#t(#t_var)) => {
+                Ok(#smf_crate::SMAsync::Ready(#after::#t(#t_var))) => {
                     #smf_crate::export::replace(&mut self.current_state, #states_enum::#t(#t_var));
                 }
             }
@@ -482,12 +482,12 @@ impl State<phases::ReadyForCodegen> {
             #states_enum::#ident(#var) => {
                 let out = #poll_method_call(#var);
                 match out {
-                    #smf_crate::SMPoll::Error(e) => {
+                    Err(e) => {
                         // We replaced the state, poll will now loop and poll on
                         // the new state
                         #smf_crate::export::replace(&mut self.current_state, #states_enum::#error_ident(#error_ident(e)));
                     },
-                    #smf_crate::SMPoll::NotReady(not_ready) => {
+                    Ok(#smf_crate::SMAsync::NotReady(not_ready)) => {
                         #smf_crate::export::replace(&mut self.current_state, #states_enum::#ident(not_ready));
                         return Ok(#smf_crate::export::Async::NotReady);
                     }

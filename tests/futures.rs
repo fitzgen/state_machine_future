@@ -4,8 +4,7 @@ extern crate futures;
 #[derive(Debug, PartialEq, Eq)]
 struct MyItem;
 #[derive(Debug, PartialEq, Eq)]
-enum MyError {
-}
+struct MyError;
 
 #[derive(StateMachineFuture)]
 enum MyStateMachine {
@@ -48,4 +47,54 @@ fn test_state_machine() {
     assert_eq!(sm.poll(), Ok(Async::NotReady));
     assert_eq!(sm.poll(), Ok(Async::NotReady));
     assert_eq!(sm.poll(), Ok(Async::Ready(MyItem)));
+}
+
+mod error {
+    use super::{MyItem, MyError};
+    use futures::{Poll, Async, Future};
+
+    #[derive(StateMachineFuture)]
+    enum ErrorMachine {
+        #[state_machine_future(start, transitions(Fail))]
+        Start,
+
+        #[state_machine_future(transitions(Ready))]
+        Fail,
+
+        #[state_machine_future(ready)]
+        Ready(MyItem),
+
+        #[state_machine_future(error)]
+        Error(MyError),
+    }
+
+    impl FutureErrorMachine for ErrorMachine {
+        fn poll_start(_start: Start) -> SMPoll<AfterStart, Start, MyError> {
+            transition!(AfterStart::Fail(Fail))
+        }
+        fn poll_fail(fail: Fail) -> SMPoll<AfterFail, Fail, MyError> {
+            struct SubFut;
+
+            impl Future for SubFut {
+                type Item = MyItem;
+                type Error = MyError;
+                fn poll(&mut self) -> Poll<MyItem, MyError> {
+                    Err(MyError)
+                }
+            }
+
+            let mut subfut = SubFut;
+            match subfut.poll()? {
+                Async::Ready(item) => transition!(AfterFail::Ready(Ready(item))),
+                Async::NotReady => not_ready!(fail),
+            }
+        }
+    }
+
+    #[test]
+    fn test_error_machine() {
+        let mut sm = ErrorMachine::start();
+
+        assert_eq!(sm.poll(), Err(MyError));
+    }
 }
